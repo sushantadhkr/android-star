@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
@@ -48,7 +49,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.personal.base.core.app.AppScopeImpl
 import com.personal.base.core.security.LockTimeout
-import com.personal.base.core.runtime.NotificationCategory
+import com.personal.base.core.runtime.NotificationGroup
 import com.personal.base.di.PlatformContainer
 import kotlinx.coroutines.launch
 
@@ -273,36 +274,59 @@ fun SettingsScreen(
                     Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Notification Channel Control",
+                        text = "Notifications",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                 }
 
                 Text(
-                    text = "Organized and categorized by channel and sub-app. Disable or enable notifications on a per-app or per-category basis.",
+                    text = "Platform alerts and App alerts are kept apart. Silencing an App never " +
+                            "silences the platform, and vice versa.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 HorizontalDivider()
 
-                NotificationCategory.entries.forEach { category ->
-                    val categoryChannels = channels.filter { it.category == category }
-                    if (categoryChannels.isNotEmpty()) {
-                        Text(
-                            text = category.displayName,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Text(
-                            text = category.description,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                NotificationGroup.entries.forEach { group ->
+                    val groupChannels = channels.filter { it.group == group }
+                    if (groupChannels.isNotEmpty()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(top = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (group == NotificationGroup.PLATFORM) {
+                                    Icons.Default.Shield
+                                } else {
+                                    Icons.Default.Extension
+                                },
+                                contentDescription = null,
+                                tint = if (group == NotificationGroup.PLATFORM) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.secondary
+                                }
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = group.displayName,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = group.description,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
 
-                        categoryChannels.forEach { ch ->
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        groupChannels.forEach { ch ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -317,7 +341,7 @@ fun SettingsScreen(
                                         fontWeight = FontWeight.Medium
                                     )
                                     Text(
-                                        text = "${ch.appName} • ${ch.channelDescription}",
+                                        text = ch.channelDescription,
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )

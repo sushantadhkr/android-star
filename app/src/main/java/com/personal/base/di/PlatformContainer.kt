@@ -270,6 +270,12 @@ class PlatformContainer(val context: Context) {
         // @PlatformAppDefinition, so this line never changes when Apps are added or removed.
         appManager.registerAll(GeneratedAppRegistry.registrations)
 
+        // Give each App its own notification channel under the Apps group, and drop channels for
+        // Apps that no longer exist. Platform channels live in their own group and are untouched.
+        notificationChannelManager.syncApps(
+            appManager.apps.value.map { it.id to it.name }
+        )
+
         // An App may expose a capability over the network. The route is bound to the App's live
         // instance, so a stopped App serves nothing.
         appManager.apps.value.forEach { entry ->

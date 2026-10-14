@@ -12,62 +12,52 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.ConcurrentHashMap
 
-enum class NotificationCategory(
+/**
+ * Who owns a notification.
+ *
+ * The platform and its Apps share one notification service but are never mixed in the user's view:
+ * platform alerts describe the system itself, while App alerts belong to an individual App and are
+ * controlled separately. A user who silences one App must not silence the platform, and vice versa.
+ */
+enum class NotificationGroup(
     val id: String,
     val displayName: String,
-    val description: String,
-    val defaultImportance: Int
+    val description: String
 ) {
-    SYSTEM_FOREGROUND(
-        id = "cat_system_foreground",
-        displayName = "System & Foreground Service",
-        description = "Persistent platform service status and service watchdogs",
-        defaultImportance = NotificationManager.IMPORTANCE_LOW
+    PLATFORM(
+        id = "star_group_platform",
+        displayName = "Platform",
+        description = "Alerts raised by the platform itself"
     ),
-    COMMUNICATION(
-        id = "cat_communication",
-        displayName = "Peer & Command Communication",
-        description = "Incoming peer messages, remote commands, and gateway events",
-        defaultImportance = NotificationManager.IMPORTANCE_DEFAULT
-    ),
-    DATA_TRANSFER(
-        id = "cat_data_transfer",
-        displayName = "Data & Media Transfers",
-        description = "File transfers, streaming sessions, and download progress",
-        defaultImportance = NotificationManager.IMPORTANCE_LOW
-    ),
-    SECURITY(
-        id = "cat_security",
-        displayName = "Security & Biometric Gates",
-        description = "Unauthorized access attempts, pairing confirmations, and lock alerts",
-        defaultImportance = NotificationManager.IMPORTANCE_HIGH
-    ),
-    AUTOMATION(
-        id = "cat_automation",
-        displayName = "Automations & Alarms",
-        description = "Scheduled triggers, geofence boundary events, and battery threshold alerts",
-        defaultImportance = NotificationManager.IMPORTANCE_DEFAULT
-    ),
-    CUSTOM_APPS(
-        id = "cat_custom_apps",
-        displayName = "Modular Sub-Apps",
-        description = "Dynamic notifications created by installed platform apps",
-        defaultImportance = NotificationManager.IMPORTANCE_DEFAULT
+    APPS(
+        id = "star_group_apps",
+        displayName = "Apps",
+        description = "Alerts raised by individual Apps. Silence them per App."
     )
 }
 
+/**
+ * A notification channel the platform manages, and which group it belongs to.
+ */
 data class ManagedNotificationChannel(
     val channelId: String,
     val channelName: String,
     val channelDescription: String,
-    val category: NotificationCategory,
-    val appId: String = "core_platform",
+    val group: NotificationGroup,
+    val appId: String = NotificationChannelManager.PLATFORM_APP_ID,
     val appName: String = "Android Star",
     val isEnabled: Boolean = true
-)
+) {
+    val isPlatformOwned: Boolean get() = group == NotificationGroup.PLATFORM
+}
 
 /**
- * Manages organized notification channels, groups, and per-app/per-category enablement toggles.
+ * Owns every notification channel on the device.
+ *
+ * There is a single notification service, shared by everyone. Separation happens at the *channel*
+ * level: the platform owns its own channels under the Platform group, and each App gets its own
+ * channel under the Apps group. An App can therefore be muted without touching the platform, which
+ * is the same rule the App lifecycle already follows — one instance per App, shared capabilities.
  */
 class NotificationChannelManager(
     private val context: Context,
@@ -88,168 +78,189 @@ class NotificationChannelManager(
     private val disabledApps = ConcurrentHashMap.newKeySet<String>()
 
     init {
-        // Load disabled state from prefs
         prefs.getStringSet("disabled_channels", emptySet())?.forEach { disabledChannels.add(it) }
         prefs.getStringSet("disabled_apps", emptySet())?.forEach { disabledApps.add(it) }
-
-        setupStandardGroupsAndChannels()
+        setupGroupsAndPlatformChannels()
     }
 
-    private fun setupStandardGroupsAndChannels() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            // Create notification channel groups for each category
-            NotificationCategory.entries.forEach { cat ->
-                val group = NotificationChannelGroup(cat.id, cat.displayName)
-                notificationManager.createNotificationChannelGroup(group)
-            }
+    /**
+     * Platform-owned channels. These describe the platform itself, so they are fixed rather than
+     * derived from any App.
+     */
+    private fun setupGroupsAndPlatformChannels() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
 
-            // Register standard base channels
-            registerChannelInternal(
-                channelId = "star_foreground_service",
-                channelName = "Platform Service Status",
-                description = "Shows live background operation status",
-                category = NotificationCategory.SYSTEM_FOREGROUND,
-                importance = NotificationManager.IMPORTANCE_LOW
-            )
-
-            registerChannelInternal(
-                channelId = "star_security_alerts",
-                channelName = "Security & Biometric Alerts",
-                description = "Platform lock and biometric gate alerts",
-                category = NotificationCategory.SECURITY,
-                importance = NotificationManager.IMPORTANCE_HIGH
-            )
-
-            registerChannelInternal(
-                channelId = "star_peer_communication",
-                channelName = "Peer Commands & Chat",
-                description = "Remote command triggers and peer messages",
-                category = NotificationCategory.COMMUNICATION,
-                importance = NotificationManager.IMPORTANCE_DEFAULT
-            )
-
-            registerChannelInternal(
-                channelId = "star_data_transfers",
-                channelName = "File Transfers & Streams",
-                description = "File server and download progress indicators",
-                category = NotificationCategory.DATA_TRANSFER,
-                importance = NotificationManager.IMPORTANCE_LOW
-            )
-
-            registerChannelInternal(
-                channelId = "star_automations",
-                channelName = "Scheduled Automation Rules",
-                description = "Automated triggers, geofence, and sensor actions",
-                category = NotificationCategory.AUTOMATION,
-                importance = NotificationManager.IMPORTANCE_DEFAULT
+        NotificationGroup.entries.forEach { group ->
+            notificationManager.createNotificationChannelGroup(
+                NotificationChannelGroup(group.id, group.displayName)
             )
         }
+
+        registerChannel(
+            channelId = CHANNEL_FOREGROUND,
+            channelName = "Service Status",
+            description = "Shows that platform background services are running",
+            group = NotificationGroup.PLATFORM,
+            importance = NotificationManager.IMPORTANCE_LOW
+        )
+
+        registerChannel(
+            channelId = CHANNEL_SECURITY,
+            channelName = "Security & Lock",
+            description = "Device lock state, failed unlock attempts and access warnings",
+            group = NotificationGroup.PLATFORM,
+            importance = NotificationManager.IMPORTANCE_HIGH
+        )
+
+        registerChannel(
+            channelId = CHANNEL_AUTOMATION,
+            channelName = "Alarms & Schedules",
+            description = "Alarms, timers and scheduled background work",
+            group = NotificationGroup.PLATFORM,
+            importance = NotificationManager.IMPORTANCE_DEFAULT
+        )
     }
 
-    private fun registerChannelInternal(
+    private fun registerChannel(
         channelId: String,
         channelName: String,
         description: String,
-        category: NotificationCategory,
+        group: NotificationGroup,
         importance: Int,
-        appId: String = "core_platform",
+        appId: String = PLATFORM_APP_ID,
         appName: String = "Android Star"
     ) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(channelId, channelName, importance).apply {
                 this.description = description
-                group = category.id
+                this.group = group.id
             }
             notificationManager.createNotificationChannel(channel)
         }
 
-        val isEnabled = !disabledChannels.contains(channelId) && !disabledApps.contains(appId)
-        val managed = ManagedNotificationChannel(
+        channels[channelId] = ManagedNotificationChannel(
             channelId = channelId,
             channelName = channelName,
             channelDescription = description,
-            category = category,
+            group = group,
             appId = appId,
             appName = appName,
-            isEnabled = isEnabled
+            isEnabled = !disabledChannels.contains(channelId) && !disabledApps.contains(appId)
         )
-        channels[channelId] = managed
-        _channelsFlow.value = channels.values.toList()
+        publish()
     }
 
     /**
-     * Dynamically registers a notification channel for a specific sub-app module.
+     * Creates or updates the notification channel belonging to an App.
+     *
+     * One channel per App, created on demand. Repeated calls update the display name without
+     * disturbing the user's chosen importance, because Android preserves channel settings once a
+     * channel exists.
      */
-    fun registerAppChannel(
+    fun ensureAppChannel(
         appId: String,
         appName: String,
-        channelId: String,
-        channelName: String,
-        channelDescription: String,
-        category: NotificationCategory = NotificationCategory.CUSTOM_APPS,
         importance: Int = NotificationManager.IMPORTANCE_DEFAULT
-    ) {
-        registerChannelInternal(
+    ): String {
+        val channelId = appChannelId(appId)
+        if (channels[channelId] != null) return channelId
+
+        registerChannel(
             channelId = channelId,
-            channelName = channelName,
-            description = channelDescription,
-            category = category,
+            channelName = appName,
+            description = "Notifications from $appName",
+            group = NotificationGroup.APPS,
             importance = importance,
             appId = appId,
             appName = appName
         )
-        logger.i("NotificationChannelManager", "Registered channel '$channelId' for app '$appName' [$category]")
+        logger.i("NotificationChannelManager", "Created channel '$channelId' for app '$appName'")
+        return channelId
     }
 
     /**
-     * Checks if notifications for a specific channel and app are allowed by the user.
+     * Drops the channels of Apps that no longer exist.
+     *
+     * Called with the current App list so the Apps group never accumulates channels for Apps the
+     * user has deleted.
      */
-    fun isNotificationAllowed(channelId: String, appId: String = "core_platform"): Boolean {
+    fun syncApps(installed: List<Pair<String, String>>) {
+        val live = installed.associate { it.first to it.second }
+
+        channels.values
+            .filter { !it.isPlatformOwned && it.appId !in live }
+            .forEach { stale -> channels.remove(stale.channelId) }
+
+        live.forEach { (appId, appName) ->
+            val channelId = appChannelId(appId)
+            val existing = channels[channelId]
+            if (existing == null) {
+                ensureAppChannel(appId, appName)
+            } else if (existing.appName != appName) {
+                // App renamed — keep the channel, refresh the label.
+                registerChannel(
+                    channelId = channelId,
+                    channelName = appName,
+                    description = "Notifications from $appName",
+                    group = NotificationGroup.APPS,
+                    importance = NotificationManager.IMPORTANCE_DEFAULT,
+                    appId = appId,
+                    appName = appName
+                )
+            }
+        }
+        publish()
+    }
+
+    /** Removes every channel belonging to Apps that are no longer installed. */
+    fun isNotificationAllowed(channelId: String, appId: String = PLATFORM_APP_ID): Boolean {
         if (disabledApps.contains(appId)) return false
         if (disabledChannels.contains(channelId)) return false
         return true
     }
 
-    /**
-     * Toggle a specific notification channel on or off.
-     */
+    /** Toggles a single channel. */
     fun setChannelEnabled(channelId: String, enabled: Boolean) {
-        if (enabled) {
-            disabledChannels.remove(channelId)
-        } else {
-            disabledChannels.add(channelId)
-        }
+        if (enabled) disabledChannels.remove(channelId) else disabledChannels.add(channelId)
         prefs.edit().putStringSet("disabled_channels", disabledChannels).apply()
 
-        channels[channelId]?.let { ch ->
-            channels[channelId] = ch.copy(isEnabled = enabled)
-            _channelsFlow.value = channels.values.toList()
-        }
+        channels[channelId]?.let { channels[channelId] = it.copy(isEnabled = enabled) }
+        publish()
         logger.i("NotificationChannelManager", "Channel '$channelId' enabled = $enabled")
     }
 
-    /**
-     * Toggle all notifications for a specific app on or off.
-     */
+    /** Toggles every notification from one App, leaving the platform untouched. */
     fun setAppNotificationsEnabled(appId: String, enabled: Boolean) {
-        if (enabled) {
-            disabledApps.remove(appId)
-        } else {
-            disabledApps.add(appId)
-        }
+        if (appId == PLATFORM_APP_ID) return
+        if (enabled) disabledApps.remove(appId) else disabledApps.add(appId)
         prefs.edit().putStringSet("disabled_apps", disabledApps).apply()
 
-        // Update all channels for this app
         channels.values.filter { it.appId == appId }.forEach { ch ->
-            channels[ch.channelId] = ch.copy(isEnabled = enabled && !disabledChannels.contains(ch.channelId))
+            channels[ch.channelId] =
+                ch.copy(isEnabled = enabled && !disabledChannels.contains(ch.channelId))
         }
-        _channelsFlow.value = channels.values.toList()
+        publish()
         logger.i("NotificationChannelManager", "App notifications for '$appId' enabled = $enabled")
     }
 
     fun isAppEnabled(appId: String): Boolean = !disabledApps.contains(appId)
 
-    fun getChannelsByCategory(category: NotificationCategory): List<ManagedNotificationChannel> {
-        return channels.values.filter { it.category == category }
+    fun getChannelsByGroup(group: NotificationGroup): List<ManagedNotificationChannel> =
+        channels.values.filter { it.group == group }
+
+    private fun publish() {
+        _channelsFlow.value = channels.values.sortedWith(
+            compareBy<ManagedNotificationChannel> { it.group.ordinal }.thenBy { it.channelName }
+        )
+    }
+
+    private fun appChannelId(appId: String) = "app_$appId"
+
+    companion object {
+        const val PLATFORM_APP_ID = "core_platform"
+
+        const val CHANNEL_FOREGROUND = "star_foreground_service"
+        const val CHANNEL_SECURITY = "star_security_alerts"
+        const val CHANNEL_AUTOMATION = "star_automations"
     }
 }
