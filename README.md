@@ -327,12 +327,15 @@ curl -H "$H" -X POST http://PHONE:8899/api/capabilities/toggle \
 
 ### The console
 
-`index.html` is a browser front end for everything above. Open it, type the address and the token,
-and it renders the entire capability surface as working forms.
+`index.html` is a browser front end for everything above. **The phone serves it**, at its own root:
 
 ```
-open index.html          # then: Server → http://100.101.227.77:8899, paste the token, Connect
+http://100.101.227.77:8899/          # from your laptop, over Tailscale
+http://localhost:8899/              # from the phone's own browser
 ```
+
+Type the token from Settings → API access token into the page, and it renders the entire capability
+surface as working forms.
 
 | | |
 |---|---|
@@ -343,14 +346,25 @@ open index.html          # then: Server → http://100.101.227.77:8899, paste th
 | **Fill from example** | Pre-fills the form from the documented example request |
 | **Switches** | Per-capability and master toggles, straight from the sidebar |
 
-It needs no build step and no dependencies — it is one file. It contains nothing the platform did
-not already tell it: the entire interface is generated from `GET /api/capabilities/docs`, so it
-cannot describe a capability that does not exist or an action that was removed.
+**Why it is served rather than opened from disk:** a `file://` page cannot talk to the phone. The
+browser sends an `OPTIONS` preflight for the `Authorization` header and the server does not answer
+one, so the request never leaves. Served from the phone, the page and the API share an origin, so no
+preflight happens and no CORS configuration is needed or wanted. Opening the repository copy from
+disk now says exactly that, and links to the address that works.
 
-`tools/check-console.js` renders the page against the real docs payload and checks that every
-action gets a control for each of its parameters, that a capability without actions invents none,
-and that a hostile capability name cannot inject HTML. Regenerate the fixture with
-`./gradlew :core:testDebugUnitTest --tests '*DocsFixtureTest'`.
+The one path served without a token is the console itself, because a browser cannot attach an
+`Authorization` header to a plain navigation — the page could otherwise never load, and could never
+show the form that asks for the token. It is a static page holding no secrets, matched exactly
+rather than by prefix, and **every endpoint it drives still requires the token**.
+
+`index.html` at the repository root is the single editable copy. A Gradle task copies it into the
+APK's assets on every build, and the generated copy is gitignored — so there is no second version of
+the truth to forget to update.
+
+`tools/check-console.js` renders the page against the real docs payload and checks that every action
+gets a control for each of its parameters, that a capability without actions invents none, that a
+hostile capability name cannot inject HTML, and that the served asset cannot drift from the source.
+Regenerate the fixture with `./gradlew :core:testDebugUnitTest --tests '*DocsFixtureTest'`.
 
 ### SMS and Call history
 

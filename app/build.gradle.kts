@@ -189,6 +189,26 @@ val generateAppRegistry = tasks.register<GenerateAppRegistryTask>("generateAppRe
     outputDirectory.set(layout.buildDirectory.dir("generated/appregistry"))
 }
 
+// ---------------------------------------------------------------------------
+// The capability console.
+//
+// index.html lives at the repository root: it is the single editable copy, and
+// it is what you open to work on it. The build copies it into the APK's assets
+// so the phone can serve it at http://<phone>:8899/.
+//
+// Copying rather than keeping a second checked-in copy is deliberate — two
+// copies of a console that must match the API's docs is two copies to forget
+// to update. The generated copy is a build artifact and is never committed.
+// ---------------------------------------------------------------------------
+// Written into the assets source set rather than a build directory because AGP's SourceSet API
+// rejects a Provider<Directory>, and a Copy task keeps the generated copy from being committed
+// (see .gitignore) while leaving every other asset untouched.
+val syncConsole = tasks.register<Copy>("syncConsole") {
+    description = "Copies the capability console into the APK's assets"
+    from(rootProject.layout.projectDirectory.file("index.html"))
+    into(layout.projectDirectory.dir("src/main/assets"))
+}
+
 // Fail loudly, and only for release packaging, when signing credentials are absent.
 // Values are captured as primitives so the configuration cache stays serializable.
 tasks.matching { it.name.contains("Release") && it.name.contains("Package") }.configureEach {
@@ -214,3 +234,7 @@ androidComponents {
 }
 
 // Task dependency for the generated registry is established by androidComponents above.
+
+// Editing the repository-root index.html is all that is needed: this copies it into the assets
+// before anything is packaged, so there is no second file to keep in step and no step to remember.
+tasks.named("preBuild").configure { dependsOn(syncConsole) }

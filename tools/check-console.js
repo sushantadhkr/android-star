@@ -41,6 +41,7 @@ global.document = {
 };
 global.localStorage = { getItem: () => null, setItem: () => {} };
 global.fetch = async () => { throw new Error("no network in this harness"); };
+global.location = { protocol: "http:" };
 
 // Load the page with state already seeded, so the renderers can be called directly.
 function boot(catalogue, selected) {
@@ -160,6 +161,36 @@ for (const c of docs.capabilities)
   for (const a of c.actions)
     try { JSON.parse(a.exampleRequest); } catch (e) { badExamples.push(c.id + "." + a.name); }
 check("every documented exampleRequest parses", badExamples.length === 0, badExamples.join(", "));
+
+console.log("\n9. opened from disk it explains itself instead of failing silently");
+{
+  global.location = { protocol: "file:" };
+  boot(catalogue, null);
+  const main = els.main.innerHTML;
+  check("says to open it from the phone", /open this from the phone/i.test(main));
+  check("gives the served URL as a link", main.includes('href="http://100.101.227.77:8899/"'));
+  check("mentions the localhost form for the phone's own browser", main.includes("localhost:8899"));
+  check("offers no form to a disk copy", !main.includes("data-run="));
+  check("the sidebar stays empty rather than showing fake capabilities", els.list.innerHTML === "");
+  global.location = { protocol: "http:" };
+}
+
+console.log("\n10. the server asset and the repository copy cannot drift");
+{
+  const fs2 = require("fs");
+  const asset = "app/src/main/assets/index.html";
+  const tracked = fs2.existsSync(asset);
+  check("the generated asset exists after a build", tracked, "run ./gradlew :app:assembleDebug first");
+  if (tracked) {
+    const same = fs2.readFileSync(asset, "utf8") === fs2.readFileSync(path.join(root, "index.html"), "utf8");
+    check("the APK copy is byte-identical to index.html", same);
+  }
+  // spawnSync, not execSync: the latter returns a Buffer with no exit status, so `=== 0` would
+  // silently compare against undefined and always report "not ignored".
+  const ignored = require("child_process")
+    .spawnSync("git", ["check-ignore", "-q", asset], { cwd: root }).status === 0;
+  check("the generated copy is gitignored so only one is tracked", ignored);
+}
 
 console.log("\n" + (failures ? failures + " FAILURE(S)" : "all checks passed"));
 process.exit(failures ? 1 : 0);

@@ -39,6 +39,8 @@ import com.personal.base.core.platform.RawSocketTransport
 import com.personal.base.core.platform.RemoteEventSubscription
 import com.personal.base.core.platform.ReplayProtection
 import com.personal.base.core.platform.SecretVault
+import com.personal.base.core.platform.ServerRequest
+import com.personal.base.core.platform.ServerResponse
 import com.personal.base.core.platform.SyncEngine
 import com.personal.base.core.platform.TlsCertManager
 import com.personal.base.core.platform.TrustRevocation
@@ -230,11 +232,16 @@ class PlatformContainer(val context: Context) {
 
     // 7. B. Core Platform Capabilities (33 components)
     val eventBus = EventBus(logger)
+
     val embeddedServer = EmbeddedServer(
         logger = logger,
         // The server can post notifications, run hardware and change what the platform may do, so
         // every request must present the token. Enforced here so no route can ship unauthenticated.
-        authorizer = capabilityApi::authorize
+        authorizer = capabilityApi::authorize,
+        // The console is the one exemption. It is a static page with no secrets in it, and a browser
+        // cannot attach the header on a plain navigation, so demanding one would mean the page could
+        // never load and could never show the form that asks for it.
+        publicPaths = CONSOLE_PATHS
     )
     val authentication = Authentication(logger)
     val authorization = Authorization(logger)
@@ -288,6 +295,7 @@ class PlatformContainer(val context: Context) {
         // The platform's network surface. Routes are registered eagerly but the socket is only
         // opened by the always-on host, so nothing is reachable while that host is stopped.
         capabilityApi.register(embeddedServer)
+        registerConsole()
 
         // Register every declared App. The registry is generated at build time from
         // @PlatformAppDefinition, so this line never changes when Apps are added or removed.
@@ -390,5 +398,42 @@ class PlatformContainer(val context: Context) {
         embeddedServer.stop()
         networkMonitor.stopMonitoring()
         capabilityRegistry.releaseAll()
+    }
+
+    /**
+     * Publishes the capability console on the server.
+     *
+     * Serving it from the phone is what makes the console work from a browser at all. Opened from
+     * disk it would be a `file://` page calling the phone, and the browser would send an OPTIONS
+     * preflight for the `Authorization` header that this server never answers. Served from here the
+     * page and the API share an origin, so no preflight happens and no CORS configuration is
+     * needed or wanted.
+     */
+    private fun registerConsole() {
+        val page = runCatching {
+            context.assets.open("index.html").bufferedReader().use { it.readText() }
+        }.getOrElse {
+            logger.w("PlatformContainer", "Console asset missing; / will not be served: ${it.message}")
+            return
+        }
+
+        val handler = { _: ServerRequest ->
+            ServerResponse(200, "text/html; charset=utf-8", page)
+        }
+
+        embeddedServer.registerRoute("/", handler)
+        embeddedServer.registerRoute("/index.html", handler)
+
+        logger.i("PlatformContainer", "Capability console served at http://<this device>:${embeddedServer.port}/")
+    }
+
+    private companion object {
+        /**
+         * The console, and nothing else.
+         *
+         * Matched exactly by [EmbeddedServer], never by prefix, so this cannot widen to `/api/...`
+         * by accident. Every endpoint the console drives still requires the token.
+         */
+        val CONSOLE_PATHS = setOf("/", "/index.html")
     }
 }

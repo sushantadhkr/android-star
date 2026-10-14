@@ -18,6 +18,10 @@ app/build
 *.keystore
 keystore.properties
 
+# The capability console is generated from the repository-root index.html into the APK's assets.
+# Only the source copy is tracked; this one must never drift into a second version of the truth.
+app/src/main/assets/index.html
+
 # Module build outputs (see Phase 1 split)
 build
 core/build

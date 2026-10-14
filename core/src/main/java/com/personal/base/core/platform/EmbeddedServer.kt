@@ -68,11 +68,17 @@ private typealias RouteHandler = (ServerRequest) -> ServerResponse
  * When an [authorizer] is supplied, every request must present a valid bearer token. Enforcement
  * lives here rather than in individual routes so a newly added route cannot accidentally ship
  * unauthenticated.
+ *
+ * @param publicPaths paths answered without a token. Empty by default, so the safe case is the
+ *   default case. Exact matches only, never prefixes, so a broad exemption cannot be granted by
+ *   accident. A browser cannot attach an `Authorization` header to a plain navigation, which is the
+ *   only reason a static page would need this.
  */
 class EmbeddedServer(
     private val logger: PlatformLogger,
     val port: Int = DEFAULT_PORT,
-    private val authorizer: ((ServerRequest) -> ServerResponse?)? = null
+    private val authorizer: ((ServerRequest) -> ServerResponse?)? = null,
+    private val publicPaths: Set<String> = emptySet()
 ) {
 
     private val scope = CoroutineScope(Dispatchers.IO + Job())
@@ -164,7 +170,12 @@ class EmbeddedServer(
                 val request = ServerRequest(method, path, body, headers)
 
                 // Authorisation is enforced before routing, so no route can ship unauthenticated.
-                val denied = authorizer?.invoke(request)
+                // Only the explicitly declared public paths skip it, and they are matched exactly.
+                val denied = if (request.path in publicPaths) {
+                    null
+                } else {
+                    authorizer?.invoke(request)
+                }
                 val response = denied
                     ?: routeHandlers[path]?.invoke(request)
                     ?: ServerResponse(404, "application/json", """{"error":"Not Found"}""")

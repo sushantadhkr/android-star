@@ -162,6 +162,9 @@ const DEFAULTS = {
   token: ""
 };
 
+/** Matches EmbeddedServer.DEFAULT_PORT, so the hint stays right if the port ever changes. */
+const PORT = 8899;
+
 const $ = (id) => document.getElementById(id);
 const baseEl = $("base"), tokenEl = $("token"), statusEl = $("status");
 
@@ -522,6 +525,31 @@ $("main").addEventListener("click", (e) => {
 });
 
 // ---------------------------------------------------------------------------
+// Opened from disk?
+//
+// A file:// page calling the phone cannot work: the browser sends an OPTIONS preflight for the
+// Authorization header, and the phone's server does not answer one. Say so with the link that does
+// work, rather than leaving someone staring at a page that silently fails.
+// ---------------------------------------------------------------------------
+function warnIfOpenedFromDisk() {
+  if (location.protocol !== "file:") return;
+
+  const target = base() + "/";
+  $("status").className = "bad";
+  $("main").innerHTML =
+    '<div class="empty" style="max-width:640px;margin:60px auto;text-align:left">' +
+      '<h2 style="margin-top:0">Open this from the phone, not from disk</h2>' +
+      '<p class="muted">Browsers block this page when it is opened from a file, because the phone ' +
+      'does not answer the preflight request a cross-origin call needs. The phone serves the same ' +
+      'page itself, where it and the API share an origin and no preflight happens.</p>' +
+      '<p><a href="' + esc(target) + '" style="font-size:15px">' + esc(target) + '</a></p>' +
+      '<p class="hint">On the phone’s own browser, use <code>http://localhost:' +
+      PORT + '/</code> instead.</p>' +
+    "</div>";
+  $("list").innerHTML = "";
+}
+
+// ---------------------------------------------------------------------------
 function esc(s) {
   return String(s === undefined || s === null ? "" : s)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -532,8 +560,13 @@ baseEl.addEventListener("keydown", e => { if (e.key === "Enter") connect(); });
 tokenEl.addEventListener("keydown", e => { if (e.key === "Enter") connect(); });
 
 // Reconnect automatically on load so a reload is one less thing to do.
-if (tokenEl.value) connect();
-else setStatus("enter a token, then Connect");
+if (location.protocol === "file:") {
+  warnIfOpenedFromDisk();
+} else if (tokenEl.value) {
+  connect();
+} else {
+  setStatus("enter a token, then Connect");
+}
 </script>
 </body>
 </html>
