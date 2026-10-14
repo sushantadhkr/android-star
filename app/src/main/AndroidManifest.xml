@@ -146,51 +146,6 @@
             android:exported="false"
             android:foregroundServiceType="dataSync|connectedDevice" />
 
-        <!-- Notification Listener Service Companion -->
-        <service
-            android:name=".platform.capabilities.PlatformNotificationListenerService"
-            android:label="Android Star Notification Mirror"
-            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.service.notification.NotificationListenerService" />
-            </intent-filter>
-        </service>
-
-        <!-- Accessibility Automation Service -->
-        <service
-            android:name=".platform.capabilities.PlatformAccessibilityService"
-            android:label="Android Star Automation"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/accessibility_service_config" />
-        </service>
-
-        <!-- VPN Service Tunnel -->
-        <service
-            android:name=".platform.capabilities.PlatformVpnService"
-            android:permission="android.permission.BIND_VPN_SERVICE"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.net.VpnService" />
-            </intent-filter>
-        </service>
-
-        <!-- Remote Input Method Service (IME) -->
-        <service
-            android:name=".platform.capabilities.PlatformInputMethodService"
-            android:permission="android.permission.BIND_INPUT_METHOD"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.view.InputMethod" />
-            </intent-filter>
-        </service>
-
         <!-- Quick Settings Tile -->
         <service
             android:name=".shell.PlatformQuickSettingsTileService"
@@ -203,18 +158,6 @@
             </intent-filter>
         </service>
 
-        <!-- Storage Access Framework Documents Provider -->
-        <provider
-            android:name=".platform.capabilities.PlatformDocumentsProvider"
-            android:authorities="${applicationId}.documents"
-            android:exported="true"
-            android:grantUriPermissions="true"
-            android:permission="android.permission.MANAGE_DOCUMENTS">
-            <intent-filter>
-                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
-            </intent-filter>
-        </provider>
-
         <!-- FileProvider for Safe External Content URI Sharing -->
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -225,19 +168,6 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
-
-        <!-- Device Administrator Receiver -->
-        <receiver
-            android:name=".platform.capabilities.PlatformDeviceAdminReceiver"
-            android:permission="android.permission.BIND_DEVICE_ADMIN"
-            android:exported="true">
-            <meta-data
-                android:name="android.app.device_admin"
-                android:resource="@xml/device_admin_sample" />
-            <intent-filter>
-                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
-            </intent-filter>
-        </receiver>
 
         <!-- System Event Receiver (Battery, SMS, Network, Power) -->
         <receiver

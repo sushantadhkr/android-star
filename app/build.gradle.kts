@@ -238,3 +238,15 @@ androidComponents {
 // Editing the repository-root index.html is all that is needed: this copies it into the assets
 // before anything is packaged, so there is no second file to keep in step and no step to remember.
 tasks.named("preBuild").configure { dependsOn(syncConsole) }
+
+// The manifest check in ManifestComponentTest reads src/main/AndroidManifest.xml and the source
+// tree directly rather than going through the compiler, so Gradle cannot see that it depends on
+// them. Without these inputs the task stays up-to-date and the check silently stops running the
+// moment it matters — which is exactly when the manifest changed. Declared here so the guard is
+// real rather than decorative.
+tasks.withType<Test>().configureEach {
+    inputs.file(layout.projectDirectory.file("src/main/AndroidManifest.xml"))
+    inputs.dir(layout.projectDirectory.dir("src/main/java"))
+    inputs.dir(layout.projectDirectory.dir("src/main/res/xml"))
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+}
