@@ -429,6 +429,28 @@ A real progress bar is posted while it runs, and left behind when it finishes. W
 does not send a length the bar is indeterminate rather than pinned at 0%, because a progress bar
 that does not move while a gigabyte transfers is worse than saying "I do not know how big this is".
 
+**The notification carries controls.** While it runs there is a **Cancel**; when it finishes or
+fails there is a **Retry**. Both are ordinary notification buttons, so they obey the capability
+gate like everything else — switch `DOWNLOAD_MANAGER` off and neither works. Each carries its own
+download id, because a Cancel button that did not know which download it belonged to would be
+worse than none.
+
+### One progress notification, for everyone
+
+`ProgressNotifier` is the platform's, and it is shared rather than rebuilt per feature. A download
+uses it; so can an App:
+
+```kotlin
+scope.showProgress("backup", "Backing up", "Copying 2 of 40 files", percent = 5)
+scope.showProgressComplete("backup", "Backing up", "Saved 40 files")
+scope.showProgressFailed("backup", "Backing up", "Storage full")
+```
+
+A feature that invents its own progress notification ends up with a subtly different one and puts
+notification policy in every caller. This way a new long-running feature gets the behaviour, the
+buttons, and the gate, rather than reinventing them. Notification keys are namespaced per App, so
+two Apps showing progress cannot overwrite each other.
+
 ### Where downloads go, and whether storage access is needed
 
 **On Android 10 and up, no storage permission is needed at all.** Downloads are written through

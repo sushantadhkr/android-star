@@ -4,6 +4,7 @@ import com.personal.base.core.capability.CapabilityProvider
 import com.personal.base.core.capability.CapabilityStatus
 import com.personal.base.core.capability.CapabilityType
 import com.personal.base.core.logging.PlatformLogger
+import android.content.Context
 
 /**
  * Standard location telemetry result returned to plugins safely.
@@ -37,6 +38,15 @@ interface PlatformContext {
 
     /** Posts a notification through safe platform channels. */
     fun postNotification(title: String, message: String, priorityHigh: Boolean = false)
+
+    /**
+     * The Android context, for platform services that are not capabilities.
+     *
+     * Deliberately not a general-purpose escape hatch: it is here so an App can use platform
+     * facilities such as [com.personal.base.core.platform.ProgressNotifier] without the platform
+     * having to wrap each one in a capability.
+     */
+    fun appContext(): Context
 
     /** Triggers haptic vibration feedback. */
     fun triggerHaptic(durationMs: Long = 100L)

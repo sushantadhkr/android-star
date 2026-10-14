@@ -244,6 +244,14 @@ class NotificationCapabilityProvider(
             putExtra(NotificationActionContract.EXTRA_DISMISS, button.dismissesNotification)
             button.invoke?.let { putExtra(NotificationActionContract.EXTRA_INVOKE, it) }
             button.input?.let { putExtra(NotificationActionContract.EXTRA_INPUT_KEY, it.key) }
+            if (button.params.isNotEmpty()) {
+                putExtra(
+                    NotificationActionContract.EXTRA_PARAMS,
+                    kotlinx.serialization.json.buildJsonObject {
+                        button.params.forEach { (k, v) -> put(k, kotlinx.serialization.json.JsonPrimitive(v)) }
+                    }.toString()
+                )
+            }
         }
 
         val pendingIntent = PendingIntent.getBroadcast(

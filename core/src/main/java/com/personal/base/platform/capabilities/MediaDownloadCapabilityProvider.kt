@@ -1,10 +1,7 @@
 package com.personal.base.platform.capabilities
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.content.ContentValues
 import android.os.Build
-import androidx.core.app.NotificationCompat
 import android.content.Context
 import android.net.Uri
 import android.os.Environment
@@ -13,6 +10,9 @@ import com.personal.base.core.capability.CapabilityProvider
 import com.personal.base.core.capability.CapabilityStatus
 import com.personal.base.core.capability.CapabilityType
 import com.personal.base.core.logging.PlatformLogger
+import com.personal.base.core.platform.NotificationActionContract
+import com.personal.base.core.platform.NotificationButton
+import com.personal.base.core.platform.ProgressNotifier
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -73,26 +73,11 @@ class MediaDownloadCapabilityProvider(
     private val _history = MutableStateFlow<List<MediaDownload>>(emptyList())
     val history: StateFlow<List<MediaDownload>> = _history.asStateFlow()
 
-    private val notificationManager: NotificationManager? =
-        context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+    /** Shared, so an App posting a long job gets the same bar and the same controls. */
+    private val notifier = ProgressNotifier(context, logger)
 
     override fun initialize() {
-        createChannel()
         logger.i("MediaDownload", "Media download provider ready")
-    }
-
-    private fun createChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        notificationManager?.createNotificationChannel(
-            NotificationChannel(
-                CHANNEL,
-                "Media downloads",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Progress of files the platform is fetching"
-                setShowBadge(false)
-            }
-        )
     }
 
     override fun checkStatus(): CapabilityStatus = CapabilityStatus.Available
@@ -145,12 +130,13 @@ class MediaDownloadCapabilityProvider(
         downloads[id] = record
         push()
 
-        notify(record)
+        show(record)
         jobs[id] = scope.launch { run(record.id, url, name, mediaType) }
         return record
     }
 
     fun cancel(id: String): Boolean {
+        notifier.cancel(id)
         val job = jobs.remove(id) ?: return false
         job.cancel()
         update(id) { it.copy(status = "cancelled", error = "cancelled by the caller") }
@@ -203,7 +189,7 @@ class MediaDownloadCapabilityProvider(
                     if (System.currentTimeMillis() - lastProgressAt[id]!! > PROGRESS_INTERVAL_MS) {
                         lastProgressAt[id] = System.currentTimeMillis()
                         update(id) { it.copy(bytesDownloaded = written, totalBytes = declared) }
-                        notify(downloads[id]!!)
+                        show(downloads[id]!!)
                     }
                 }
                 output.flush()
@@ -222,7 +208,7 @@ class MediaDownloadCapabilityProvider(
                 )
             }
             logger.i("MediaDownload", "Saved $fileName ($written bytes) to Downloads")
-            notify(downloads[id]!!)
+            show(downloads[id]!!)
         } catch (e: Exception) {
             uri?.let { runCatching { context.contentResolver.delete(it, null, null) } }
             val cancelled = e is kotlinx.coroutines.CancellationException
@@ -323,49 +309,45 @@ class MediaDownloadCapabilityProvider(
     }
 
     /**
-     * A real progress bar, not a spinner.
+     * Puts the job on screen, with the controls that matter.
      *
-     * Indeterminate whenever the server did not send a length, because a bar that sits at 0% while
-     * a gigabyte moves would be worse than an honest "I do not know how big this is".
+     * Cancel and Retry are ordinary notification buttons, so they go through the same capability
+     * gate as everything else: switch DOWNLOAD_MANAGER off and neither works. Each carries its own
+     * download id, because a Cancel button that did not know which download it belonged to would be
+     * worse than no button at all.
      */
-    private fun notify(d: MediaDownload) {
-        val nm = notificationManager ?: return
-        val known = d.totalBytes > 0
-
-        val builder = NotificationCompat.Builder(context, CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentTitle(d.fileName)
-            .setOnlyAlertOnce(true)
-            .setOngoing(d.status == "queued" || d.status == "downloading")
-            .setProgress(100, d.percent, !known)
-
-        when (d.status) {
-            "downloading", "queued" -> builder
-                .setContentText(if (known) "${d.percent}% of ${human(d.totalBytes)}" else "Downloading…")
-            "complete" -> builder
-                .setContentText("Saved to ${d.savedPath ?: "Downloads"}")
-                .setOngoing(false)
-            "failed" -> builder
-                .setContentText("Failed: ${d.error ?: "unknown error"}")
-                .setOngoing(false)
-            "cancelled" -> builder.setContentText("Cancelled").setOngoing(false)
-            else -> builder.setContentText(d.status)
-        }
-
-        // Tapping the notification opens the folder the file went into.
-        .setContentIntent(
-            android.app.PendingIntent.getActivity(
-                context,
-                d.id.hashCode(),
-                android.content.Intent(
-                    android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                    android.net.Uri.parse("package:${context.packageName}")
-                ),
-                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
-            )
+    private fun show(d: MediaDownload) {
+        val cancel = NotificationButton(
+            id = "download-cancel",
+            label = "Cancel",
+            icon = NotificationActionContract.ICON_DELETE,
+            invoke = "DOWNLOAD_MANAGER:cancel",
+            params = mapOf("id" to d.id)
+        )
+        val retry = NotificationButton(
+            id = "download-retry",
+            label = "Retry",
+            icon = NotificationActionContract.ICON_REFRESH,
+            invoke = "DOWNLOAD_MANAGER:retry",
+            params = mapOf("id" to d.id)
         )
 
-        runCatching { nm.notify(d.id.hashCode(), builder.build()) }
+        val known = d.totalBytes > 0
+        when (d.status) {
+            "queued", "downloading" -> notifier.progress(
+                id = d.id,
+                title = d.fileName,
+                detail = if (known) "${d.percent}% of ${human(d.totalBytes)}" else "Downloading…",
+                percent = d.percent,
+                totalBytes = d.totalBytes,
+                buttons = listOf(cancel)
+            )
+            "complete" -> notifier.complete(
+                d.id, d.fileName, "Saved to ${d.savedPath ?: "Downloads"}", listOf(retry)
+            )
+            "failed" -> notifier.failed(d.id, d.fileName, d.error ?: "Failed", retry)
+            "cancelled" -> notifier.complete(d.id, d.fileName, "Cancelled", listOf(retry))
+        }
     }
 
     private fun human(bytes: Long): String = when {
@@ -386,7 +368,6 @@ class MediaDownloadCapabilityProvider(
 
     companion object {
         const val FOLDER = "Android Star"
-        const val CHANNEL = "personal_base_downloads"
         const val PROGRESS_INTERVAL_MS = 700L
     }
 }

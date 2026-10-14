@@ -386,7 +386,17 @@ class CapabilityActions(
                 ActionSpec("cancel", "Stop a download", listOf(
                     ParamDoc("id", "string", true, "The download id to cancel", "dl_m0abc_0")
                 ), """{"capability":"DOWNLOAD_MANAGER","action":"cancel","id":"dl_m0abc_0"}""",
-                    """{"cancelled":true}""", handler = { p -> mediaCancel(p) })
+                    """{"cancelled":true}""", handler = { p -> mediaCancel(p) }),
+                ActionSpec(
+                    "retry",
+                    "Start a download again from the same URL",
+                    listOf(
+                        ParamDoc("id", "string", true, "The download id to retry", "dl_m0abc_0")
+                    ),
+                    """{"capability":"DOWNLOAD_MANAGER","action":"retry","id":"dl_m0abc_0"}""",
+                    """{"id":"dl_n1b2c_3","status":"queued","percent":0,"retriedFrom":"dl_m0abc_0"}""",
+                    handler = { p -> mediaRetry(p) }
+                )
             )
         ),
         CapabilitySpec(
@@ -1338,6 +1348,36 @@ class CapabilityActions(
         else ServerResponse(
             404, "application/json",
             """{"error":"Nothing to cancel for $id","hint":"It may have already finished"}"""
+        )
+    }
+
+    /**
+     * Starts a failed or finished download again.
+     *
+     * The URL is remembered on the record precisely so this is possible; without it a failure could
+     * only be retried by the caller repeating the request they cannot now see.
+     */
+    fun mediaRetry(p: JsonObject): ServerResponse {
+        val provider = provider<MediaDownloadCapabilityProvider>(CapabilityType.DOWNLOAD_MANAGER)
+            ?: return unsupported(CapabilityType.DOWNLOAD_MANAGER)
+        val id = p.string("id") ?: return badRequest("Missing 'id'")
+
+        val previous = provider.get(id) ?: return ServerResponse(
+            404, "application/json",
+            """{"error":"No such download: $id"}"""
+        )
+
+        val next = provider.start(previous.url, previous.fileName, null) ?: return badRequest(
+            "'${previous.url}' is no longer fetchable; only http and https are accepted"
+        )
+
+        return ServerResponse.json(
+            buildJsonObject {
+                put("id", next.id)
+                put("status", next.status)
+                put("percent", next.percent)
+                put("retriedFrom", id)
+            }.toString()
         )
     }
 

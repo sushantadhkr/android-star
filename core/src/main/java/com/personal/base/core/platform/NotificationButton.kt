@@ -26,6 +26,9 @@ data class NotificationInput(
  *   `CAPABILITY:action:param` when [input] is present so the typed text has somewhere to go.
  *   Omitting it makes the button purely a record of the press.
  * @param dismissesNotification whether the notification clears once the button has run.
+ * @param params fixed arguments merged into the invoke payload. Without these a button could only
+ *   pass typed text, so it could never act on the thing it was attached to — a Cancel button on
+ *   one download would not know which download it meant.
  */
 data class NotificationButton(
     val id: String,
@@ -33,7 +36,8 @@ data class NotificationButton(
     val icon: String? = null,
     val input: NotificationInput? = null,
     val invoke: String? = null,
-    val dismissesNotification: Boolean = true
+    val dismissesNotification: Boolean = true,
+    val params: Map<String, String> = emptyMap()
 ) {
     init {
         require(id.isNotBlank()) { "A notification button needs an id" }
@@ -77,6 +81,14 @@ object NotificationActionContract {
     const val EXTRA_DISMISS = "dismiss"
     const val EXTRA_INVOKE = "invoke"
     const val EXTRA_INPUT_KEY = "inputKey"
+
+    /**
+     * Fixed arguments for the invoke, as JSON object text.
+     *
+     * JSON rather than parallel string arrays so a parameter's value can contain any character a
+     * value could plausibly hold.
+     */
+    const val EXTRA_PARAMS = "params"
 
     /** Icons the platform can draw, so a caller never has to ship a drawable for a button. */
     const val ICON_CHECK = "check"

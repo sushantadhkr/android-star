@@ -4,6 +4,7 @@ import com.personal.base.core.capability.CapabilityType
 import com.personal.base.core.logging.PlatformLogger
 import com.personal.base.core.platform.EmbeddedServer
 import com.personal.base.core.plugin.PlatformContext
+import com.personal.base.core.platform.ProgressNotifier
 import com.personal.base.platform.capabilities.NotificationCapabilityProvider
 import com.personal.base.core.runtime.NotificationChannelManager
 
@@ -28,6 +29,23 @@ class AppScopeImpl(
     /** The live instance, or null when the App is switched off. */
     val instance: PlatformApp?
         get() = manager.instanceOf(appId)
+
+    /** Namespaced per App so two Apps showing progress cannot overwrite each other. */
+    private val notifier by lazy { ProgressNotifier(context.appContext(), logger ?: PlatformLogger()) }
+
+    private fun key(id: String) = "$appId:$id"
+
+    override fun showProgress(id: String, title: String, detail: String, percent: Int, totalBytes: Long) {
+        notifier.progress(key(id), title, detail, percent, totalBytes)
+    }
+
+    override fun showProgressComplete(id: String, title: String, detail: String) {
+        notifier.complete(key(id), title, detail)
+    }
+
+    override fun showProgressFailed(id: String, title: String, reason: String) {
+        notifier.failed(key(id), title, reason)
+    }
 
     override fun setEnabled(enabled: Boolean) {
         manager.setEnabled(appId, enabled)

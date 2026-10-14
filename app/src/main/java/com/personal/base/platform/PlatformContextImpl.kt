@@ -1,5 +1,6 @@
 package com.personal.base.platform
 
+import android.content.Context
 import com.personal.base.core.capability.CapabilityProvider
 import com.personal.base.core.capability.CapabilityStatus
 import com.personal.base.core.capability.CapabilityType
@@ -18,8 +19,11 @@ import com.personal.base.platform.capabilities.SharingCapabilityProvider
  */
 class PlatformContextImpl(
     private val capabilityRegistry: PlatformCapabilityRegistry,
-    override val logger: PlatformLogger
+    override val logger: PlatformLogger,
+    private val context: Context
 ) : PlatformContext {
+
+    override fun appContext(): Context = context
 
     override fun hasCapability(type: CapabilityType): Boolean {
         return capabilityRegistry.isAvailable(type)

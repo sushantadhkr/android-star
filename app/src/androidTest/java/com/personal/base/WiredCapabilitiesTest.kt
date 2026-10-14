@@ -12,6 +12,7 @@ import com.personal.base.platform.capabilities.MediaDownloadCapabilityProvider
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -370,5 +371,77 @@ class WiredCapabilitiesTest {
                 viaShortcut!!.status,
             viaShortcut.status == 400
         )
+    }
+
+    @Test
+    fun theProgressNotificationCarriesWorkingControls() {
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+        val notificationsOn = androidx.core.app.NotificationManagerCompat.from(ctx).areNotificationsEnabled()
+        if (!notificationsOn) return
+
+        ok("DOWNLOAD_MANAGER", "fetch", "url" to "https://example.com", "fileName" to "controlled.bin")
+        val provider = container.capabilityRegistry
+            .getProviderByClass(MediaDownloadCapabilityProvider::class.java)!!
+        val id = provider.recent(1).first().id
+
+        val nm = ctx.getSystemService(android.content.Context.NOTIFICATION_SERVICE)
+            as android.app.NotificationManager
+
+        var posted = false
+        val deadline = System.currentTimeMillis() + 15_000
+        while (System.currentTimeMillis() < deadline && !posted) {
+            posted = nm.activeNotifications.any { it.id == id.hashCode() }
+            if (!posted) Thread.sleep(150)
+        }
+        assertTrue("the download must post a notification", posted)
+
+        // Cancel must be on it, and must know which download it belongs to.
+        val notification = nm.activeNotifications.firstOrNull { it.id == id.hashCode() }
+        val actions = notification?.notification?.actions?.map { it.title }.orEmpty()
+        assertTrue("a running download must offer Cancel, got $actions", actions.any { it.contains("Cancel") })
+
+        // Pressing it goes through the capability gate like anything else, so the action must
+        // actually be resolvable rather than pointing at nothing.
+        val cancelButton = com.personal.base.core.platform.NotificationButton(
+            id = "download-cancel", label = "Cancel",
+            invoke = "DOWNLOAD_MANAGER:cancel", params = mapOf("id" to id)
+        )
+        val target = com.personal.base.core.platform.NotificationActionContract.parseInvoke(cancelButton.invoke!!)
+        assertTrue("the cancel button must name a real capability", target != null)
+        assertEquals(
+            "the cancel button must carry the download it belongs to",
+            id,
+            cancelButton.params["id"]
+        )
+    }
+
+    @Test
+    fun aFailedDownloadCanBeRetried() {
+        // A host that does not resolve fails fast and predictably.
+        ok("DOWNLOAD_MANAGER", "fetch", "url" to "https://this-host-does-not-exist.invalid/x", "fileName" to "retry.bin")
+        val provider = container.capabilityRegistry
+            .getProviderByClass(MediaDownloadCapabilityProvider::class.java)!!
+        val id = provider.recent(1).first().id
+
+        var done: MediaDownload? = null
+        val deadline = System.currentTimeMillis() + 30_000
+        while (System.currentTimeMillis() < deadline) {
+            val d = provider.get(id)
+            if (d != null && d.status in listOf("complete", "failed")) { done = d; break }
+            Thread.sleep(250)
+        }
+        assertTrue("the download should have failed", done?.status == "failed")
+
+        val response = actions.invoke(
+            CapabilityType.DOWNLOAD_MANAGER,
+            "retry",
+            JsonObject(mapOf(
+                "capability" to JsonPrimitive("DOWNLOAD_MANAGER"),
+                "action" to JsonPrimitive("retry"),
+                "id" to JsonPrimitive(id)
+            ))
+        )
+        assertTrue("retry must be accepted, got ${response.status}: ${response.body}", response.status in 200..299)
+        assertTrue("retry must report the download it came from", response.body.contains(id))
     }
 }

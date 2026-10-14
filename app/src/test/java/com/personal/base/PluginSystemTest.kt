@@ -173,6 +173,10 @@ private class TestPlugin(override val id: String) : PlatformPlugin {
 }
 
 private class FakePlatformContext(override val logger: PlatformLogger) : PlatformContext {
+    // This fake covers plugin wiring, not platform services, so there is no real
+    // Android Context to hand out.
+    override fun appContext(): android.content.Context =
+        throw UnsupportedOperationException("a fake context has no Android Context")
     override fun hasCapability(type: CapabilityType): Boolean = true
     override fun getCapabilityStatus(type: CapabilityType): CapabilityStatus = CapabilityStatus.Available
     override fun <T : CapabilityProvider> getCapability(type: CapabilityType): T? = null

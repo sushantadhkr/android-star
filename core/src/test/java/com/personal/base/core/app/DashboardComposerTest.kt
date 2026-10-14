@@ -180,6 +180,9 @@ class DashboardComposerTest {
     }
 
     private object FakeContext : PlatformContext {
+        // These fakes test lifecycle, not platform services, so there is no real Context here.
+        override fun appContext(): android.content.Context =
+            throw UnsupportedOperationException("a fake context has no Android Context")
         override val logger: PlatformLogger = PlatformLogger()
         override fun hasCapability(type: CapabilityType) = true
         override fun getCapabilityStatus(type: CapabilityType) =

@@ -180,7 +180,7 @@ class PlatformContainer(val context: Context) {
     val commandValidator = CommandValidator(configRepository, logger)
 
     // 4. Platform Facade
-    val platformContext: PlatformContext = PlatformContextImpl(capabilityRegistry, logger)
+    val platformContext: PlatformContext = PlatformContextImpl(capabilityRegistry, logger, context)
 
     // 5. Plugin & App Managers (Empty by default, awaiting consumer apps)
     val pluginManager = PluginManager(
@@ -287,6 +287,11 @@ class PlatformContainer(val context: Context) {
 
     fun initialize() {
         logger.i("PlatformContainer", "Bootstrapping Android Star Base Platform (Device: ${deviceSigner.identity.deviceId})...")
+
+        // Core builds the intents for notification buttons but cannot name a class in the shell.
+        // Telling it here is what lets a progress notification carry working Cancel and Retry.
+        com.personal.base.core.platform.ProgressNotifier.RECEIVER_CLASS =
+            NotificationActionReceiver::class.java.name
 
         // Install Crash Interceptor
         crashHandler.install()

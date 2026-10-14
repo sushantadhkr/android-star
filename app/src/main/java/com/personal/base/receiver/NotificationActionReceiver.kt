@@ -48,6 +48,11 @@ class NotificationActionReceiver : BroadcastReceiver() {
             RemoteInput.getResultsFromIntent(intent)?.getCharSequence(key)?.toString()
         }
 
+        // Fixed arguments travel as JSON so a button can act on the thing it is attached to.
+        val params = intent.getStringExtra(NotificationActionContract.EXTRA_PARAMS)
+            ?.let { runCatching { kotlinx.serialization.json.Json.parseToJsonElement(it) as? kotlinx.serialization.json.JsonObject }.getOrNull() }
+            ?: kotlinx.serialization.json.JsonObject(emptyMap())
+
         container.logger.i(TAG, "Button '$buttonId' pressed on \"$title\"")
 
         // Running a capability is not instant, and a receiver has a short window before the system
@@ -60,6 +65,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
                     container = container,
                     invokeTarget = invokeTarget,
                     typedText = typedText,
+                    params = params,
                     record = NotificationActionRecord(
                         buttonId = buttonId,
                         label = label,
@@ -83,12 +89,13 @@ class NotificationActionReceiver : BroadcastReceiver() {
         container: com.personal.base.di.PlatformContainer,
         invokeTarget: String?,
         typedText: String?,
+        params: kotlinx.serialization.json.JsonObject,
         record: NotificationActionRecord
     ) {
         var response: ServerResponse? = null
 
         if (invokeTarget != null) {
-            response = runInvoke(container, invokeTarget, typedText)
+            response = runInvoke(container, invokeTarget, typedText, params)
         }
 
         val stored = record.copy(
@@ -119,7 +126,8 @@ class NotificationActionReceiver : BroadcastReceiver() {
     private fun runInvoke(
         container: com.personal.base.di.PlatformContainer,
         invokeTarget: String,
-        typedText: String?
+        typedText: String?,
+        params: kotlinx.serialization.json.JsonObject
     ): ServerResponse? {
         val target = NotificationActionContract.parseInvoke(invokeTarget)
         if (target == null) {
@@ -134,6 +142,8 @@ class NotificationActionReceiver : BroadcastReceiver() {
             )
 
         val payload = buildJsonObject {
+            // Fixed arguments first, so a button always knows what it is acting on.
+            params.forEach { (k, v) -> put(k, v) }
             // The typed text goes where the button said it should. Without that it would be read
             // and thrown away, which is worse than not offering the field at all.
             typedText?.let { put(target.field ?: DEFAULT_TEXT_FIELD, it) }

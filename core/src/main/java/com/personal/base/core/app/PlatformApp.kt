@@ -63,6 +63,31 @@ interface AppScope {
      * The channel is created on first use, so no setup is required.
      */
     fun postNotification(title: String, message: String, priorityHigh: Boolean = false)
+
+    /**
+     * Report a long-running job in the shade, with the same bar and controls the platform uses for
+     * its own work.
+     *
+     * An App writing its own progress notification ends up with a subtly different one, and puts
+     * notification policy in every App. This is the platform's, so a retry button obeys the same
+     * capability gate as everything else.
+     *
+     * @param percent ignored when [totalBytes] is 0, which makes the bar indeterminate rather than
+     *   showing 0% for something that is nearly finished.
+     */
+    fun showProgress(
+        id: String,
+        title: String,
+        detail: String,
+        percent: Int = 0,
+        totalBytes: Long = 0
+    )
+
+    /** The job finished. Left in the shade so the result is still readable. */
+    fun showProgressComplete(id: String, title: String, detail: String)
+
+    /** The job failed, with the reason shown. */
+    fun showProgressFailed(id: String, title: String, reason: String)
 }
 
 /**
