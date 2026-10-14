@@ -1,6 +1,7 @@
 package com.personal.base.core.capability
 
 import com.personal.base.core.logging.PlatformLogger
+import com.personal.base.core.platform.NotificationActionContract
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -123,5 +124,40 @@ class ApiDocumentationTest {
         val post = actions.specFor(CapabilityType.NOTIFICATIONS)!!.action("post")!!
         val link = post.params.first { it.name == "link" }
         assertTrue("link must be optional", !link.required)
+    }
+
+    @Test
+    fun `posting a notification documents its buttons`() {
+        val post = actions.specFor(CapabilityType.NOTIFICATIONS)!!.action("post")!!
+        val buttons = post.params.firstOrNull { it.name == "buttons" }
+
+        assertTrue("the buttons option must be documented", buttons != null)
+        assertTrue("buttons must be optional", !buttons!!.required)
+
+        val described = buttons.description
+        listOf("id", "label", "icon", "input", "invoke").forEach { field ->
+            assertTrue("buttons docs must mention '$field'", described.contains(field))
+        }
+        NotificationActionContract.ICONS.forEach { icon ->
+            assertTrue("buttons docs must list the '$icon' icon", described.contains(icon))
+        }
+        assertTrue(
+            "buttons docs must show where typed text goes",
+            described.contains("CAPABILITY:action:param")
+        )
+    }
+
+    @Test
+    fun `the example shows a real button rather than an empty array`() {
+        val post = actions.specFor(CapabilityType.NOTIFICATIONS)!!.action("post")!!
+        assertTrue(post.example.contains("\"buttons\":["))
+        assertTrue(post.example.contains("\"invoke\""))
+    }
+
+    @Test
+    fun `button presses can be read back`() {
+        val log = actions.specFor(CapabilityType.NOTIFICATIONS)!!.action("buttonLog")
+        assertTrue("a press that cannot be read back is a side effect", log != null)
+        assertTrue(log!!.example.contains("\"action\""))
     }
 }

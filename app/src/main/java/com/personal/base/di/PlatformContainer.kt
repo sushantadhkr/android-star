@@ -112,7 +112,9 @@ import com.personal.base.platform.capabilities.MediaSessionCapabilityProvider
 import com.personal.base.platform.capabilities.MediaStreamEncoderCapabilityProvider
 import com.personal.base.platform.capabilities.NetworkUsageCapabilityProvider
 import com.personal.base.platform.capabilities.NfcCapabilityProvider
+import com.personal.base.core.capability.NotificationActionLog
 import com.personal.base.platform.capabilities.NotificationCapabilityProvider
+import com.personal.base.receiver.NotificationActionReceiver
 import com.personal.base.platform.capabilities.NotificationListenerCapabilityProvider
 import com.personal.base.platform.capabilities.OnDeviceMlCapabilityProvider
 import com.personal.base.platform.capabilities.OverlayWindowCapabilityProvider
@@ -158,7 +160,8 @@ class PlatformContainer(val context: Context) {
     val capabilityGate = CapabilityGate(context)
     val capabilityCatalogue = CapabilityCatalogue(capabilityRegistry, capabilityGate)
     val apiTokenStore = ApiTokenStore(context)
-    val capabilityActions = CapabilityActions(capabilityRegistry, logger)
+    val notificationActionLog = NotificationActionLog()
+    val capabilityActions = CapabilityActions(capabilityRegistry, logger, notificationActionLog)
     val capabilityApi = CapabilityApi(
         registry = capabilityRegistry,
         gate = capabilityGate,
@@ -356,7 +359,15 @@ class PlatformContainer(val context: Context) {
         // Also register low-level legacy hardware providers
         capabilityRegistry.register(SensorsCapabilityProvider(context, logger))
         capabilityRegistry.register(LocationCapabilityProvider(context, permissionManager, logger))
-        capabilityRegistry.register(NotificationCapabilityProvider(context, permissionManager, logger))
+        capabilityRegistry.register(
+            NotificationCapabilityProvider(
+                context = context,
+                permissionManager = permissionManager,
+                logger = logger,
+                // Core cannot name a class in the shell, so the shell hands the receiver over.
+                actionReceiver = NotificationActionReceiver::class.java.name
+            )
+        )
         capabilityRegistry.register(ClipboardCapabilityProvider(context, logger))
         capabilityRegistry.register(SharingCapabilityProvider(context, logger))
         capabilityRegistry.register(DeviceActionCapabilityProvider(context, logger))

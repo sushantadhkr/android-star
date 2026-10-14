@@ -200,7 +200,24 @@ class CapabilityApi(
                 """{"error":"No such capability '$id'"}"""
             )
 
-        // The gate decides. A switched-off capability is refused before it is ever touched.
+        val action = (payload["action"] as? JsonPrimitive)?.content
+            ?: return ServerResponse(
+                400, "application/json",
+                """{"error":"Missing 'action' field"}"""
+            )
+
+        return invokeGated(type, action, payload)
+    }
+
+    /**
+     * The only way into a capability, whoever is asking.
+     *
+     * The gate lives here rather than at the HTTP route so that every caller obeys it — the API, a
+     * notification button, an App. A capability the user switched off is never touched, which is
+     * the whole point of the switch; checking it in one place is what makes that true rather than
+     * merely intended.
+     */
+    fun invokeGated(type: CapabilityType, action: String, payload: JsonObject): ServerResponse {
         if (!gate.isGloballyEnabled()) {
             return ServerResponse(
                 403, "application/json",
@@ -210,24 +227,26 @@ class CapabilityApi(
         if (!gate.isEnabled(type)) {
             return ServerResponse(
                 403, "application/json",
-                """{"error":"Capability '$id' is switched off"}"""
+                """{"error":"Capability '${type.name}' is switched off"}"""
             )
         }
         if (!registry.isRegistered(type)) {
             return ServerResponse(
                 409, "application/json",
-                """{"error":"Capability '$id' has no provider on this device"}"""
+                """{"error":"Capability '${type.name}' has no provider on this device"}"""
             )
         }
-
-        val action = (payload["action"] as? JsonPrimitive)?.content
-            ?: return ServerResponse(
-                400, "application/json",
-                """{"error":"Missing 'action' field"}"""
-            )
-
         return actions.invoke(type, action, payload)
     }
+
+    /**
+     * Resolves a capability name, as written by a caller, to a real capability.
+     *
+     * Shared with paths that are not HTTP, so a button or an App cannot reach a capability the API
+     * itself would refuse.
+     */
+    fun resolveType(id: String): CapabilityType? =
+        CapabilityType.entries.firstOrNull { it.name.equals(id, ignoreCase = true) }
 
     private fun handleList(): ServerResponse =
         ServerResponse.json(json.encodeToString(catalogueSnapshot()))

@@ -3,6 +3,7 @@ package com.personal.base.core.capability
 import com.personal.base.core.logging.PlatformLogger
 import com.personal.base.core.platform.ServerRequest
 import com.personal.base.core.security.ApiTokenStoreContract
+import kotlinx.serialization.json.buildJsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -119,6 +120,40 @@ class CapabilityApiTest {
     fun `an unknown capability is a 404 not a silent success`() {
         val response = api.handleInvoke(request("""{"capability":"NOT_REAL","action":"x"}"""))
         assertEquals(404, response.status)
+    }
+
+    // ---- the gate holds on paths that are not HTTP -----------------------
+
+    @Test
+    fun `the gate is checked for callers that never touch the API`() {
+        gate.setEnabled(CapabilityType.DEVICE_ACTIONS, false)
+
+        // A notification button runs through the same door. The switch the user flipped has to mean
+        // the same thing whoever is asking, and that includes the user's own thumb on a button.
+        val response = api.invokeGated(CapabilityType.DEVICE_ACTIONS, "haptic", buildJsonObject {})
+
+        assertEquals(403, response.status)
+        assertTrue(response.body.contains("switched off"))
+    }
+
+    @Test
+    fun `the master switch also covers non-API callers`() {
+        gate.setGloballyEnabled(false)
+        val response = api.invokeGated(CapabilityType.DEVICE_ACTIONS, "haptic", buildJsonObject {})
+        assertEquals(403, response.status)
+    }
+
+    @Test
+    fun `a capability with no provider is refused for every caller`() {
+        val response = api.invokeGated(CapabilityType.DEVICE_ACTIONS, "haptic", buildJsonObject {})
+        assertEquals(409, response.status)
+    }
+
+    @Test
+    fun `capability names resolve the same way whoever is asking`() {
+        assertEquals(CapabilityType.NOTIFICATIONS, api.resolveType("notifications"))
+        assertEquals(CapabilityType.NOTIFICATIONS, api.resolveType("NOTIFICATIONS"))
+        assertNull(api.resolveType("NOT_REAL"))
     }
 
     @Test

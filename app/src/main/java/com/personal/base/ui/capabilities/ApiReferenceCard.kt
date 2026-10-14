@@ -142,6 +142,20 @@ fun ApiReferenceCard(tokenStore: com.personal.base.core.security.ApiTokenStore) 
                       -d '{"capability":"NOTIFICATIONS","action":"post","title":"Build passed",
                            "message":"Tap to view","link":"https://ci.example.com/build/482"}'
 
+                    # with buttons: pressing one runs a capability action
+                    curl -H "Authorization: Bearer $token" -X POST http://PHONE:$port/api/capabilities/invoke \\
+                      -d '{"capability":"NOTIFICATIONS","action":"post","title":"Server down",
+                           "message":"web-01 stopped responding",
+                           "buttons":[{"id":"restart","label":"Restart","icon":"refresh",
+                                       "invoke":"DEVICE_ACTIONS:vibrate"},
+                                      {"id":"reply","label":"Reply","icon":"reply",
+                                       "input":{"key":"text","hint":"Type a reply"},
+                                       "invoke":"NOTIFICATIONS:post:text"}]}'
+
+                    # what those buttons did
+                    curl -H "Authorization: Bearer $token" -X POST http://PHONE:$port/api/capabilities/invoke \\
+                      -d '{"capability":"NOTIFICATIONS","action":"buttonLog","limit":10}'
+
                     # vibrate
                     curl -H "Authorization: Bearer $token" -X POST http://PHONE:$port/api/capabilities/invoke \\
                       -d '{"capability":"DEVICE_ACTIONS","action":"haptic","durationMs":200}'

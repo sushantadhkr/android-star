@@ -332,6 +332,54 @@ dispatched, so the API returns `403` rather than quietly doing nothing. Disabled
 listed, greyed, so the full surface stays discoverable. The same rule covers Apps: a stopped App
 answers `503` on its own endpoints.
 
+The gate is not checked at the HTTP route — it is checked in `CapabilityApi.invokeGated`, the single
+door into a capability. So it holds for **every** caller: the API, an App, and the user's own thumb
+pressing a notification button.
+
+### Actionable notifications
+
+A notification can open a link when tapped, and can carry up to three inline buttons:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" -X POST http://PHONE:8899/api/capabilities/invoke \
+  -d '{"capability":"NOTIFICATIONS","action":"post","title":"Server down",
+       "message":"web-01 stopped responding",
+       "buttons":[
+         {"id":"restart","label":"Restart","icon":"refresh","invoke":"DEVICE_ACTIONS:vibrate"},
+         {"id":"reply","label":"Reply","icon":"reply",
+          "input":{"key":"text","hint":"Type a reply"},
+          "invoke":"NOTIFICATIONS:post:text"}
+       ]}'
+```
+
+| Field | Meaning |
+|---|---|
+| `id` | Your handle for the button; appears in the log |
+| `label` | The text on the button |
+| `icon` | `check` \| `alarm` \| `reply` \| `delete` \| `refresh` \| `open` |
+| `input` | `{key, hint}` — a reply field. Requires `invoke` to name where the text goes |
+| `invoke` | `CAPABILITY:action`, or `CAPABILITY:action:param` to send typed text there |
+| `dismisses` | Clear the notification afterwards. Default `true` |
+
+What happened is readable, because a button that quietly did nothing would be worse than no button:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" -X POST http://PHONE:8899/api/capabilities/invoke \
+  -d '{"capability":"NOTIFICATIONS","action":"buttonLog"}'
+```
+
+Three rules keep this honest:
+
+- **Pressing a button runs a capability through the gate.** Switch that capability off and the press
+  is refused, exactly as an API call would be.
+- **Text the user typed is never discarded.** A button that takes input but names no destination for
+  it cannot be constructed.
+- **Buttons that will not be shown are reported.** Android renders three at most, and buttons are
+  dropped rather than silently drawn as dead ends — the response lists `buttonsDropped`.
+
+Presses are delivered as a broadcast, so they work whether or not the app was running: Android
+starts the process to handle one.
+
 ### Every API must be documented — this is enforced
 
 Documentation is part of each endpoint's *definition*, not a document kept beside it:

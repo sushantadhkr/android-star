@@ -1,6 +1,9 @@
 package com.personal.base.core.capability
 
 import com.personal.base.core.logging.PlatformLogger
+import com.personal.base.core.platform.NotificationActionContract
+import com.personal.base.core.platform.NotificationButton
+import com.personal.base.core.platform.NotificationInput
 import com.personal.base.core.platform.ServerResponse
 import com.personal.base.platform.capabilities.BatteryPowerCapabilityProvider
 import com.personal.base.platform.capabilities.CameraMicCapabilityProvider
@@ -20,6 +23,9 @@ import com.personal.base.platform.capabilities.SensorsCapabilityProvider
 import com.personal.base.platform.capabilities.SystemSettingsCapabilityProvider
 import com.personal.base.platform.capabilities.TextToSpeechCapabilityProvider
 import com.personal.base.platform.capabilities.WifiCapabilityProvider
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -37,7 +43,9 @@ import kotlinx.serialization.json.put
  */
 class CapabilityActions(
     private val registry: PlatformCapabilityRegistry,
-    private val logger: PlatformLogger
+    private val logger: PlatformLogger,
+    /** Records notification button presses. Absent only where nothing records them. */
+    private val actionLog: NotificationActionLog? = null
 ) {
 
     /** Every capability with a callable surface. */
@@ -98,15 +106,39 @@ class CapabilityActions(
         ),
         CapabilitySpec(
             CapabilityType.NOTIFICATIONS, "Post a notification to the shade", listOf(
-                ActionSpec("post", "Show a notification, optionally tappable to open a link", listOf(
-                    ParamDoc("title", "string", true, "Notification title", "Hello"),
-                    ParamDoc("message", "string", false, "Body text", "from curl"),
-                    ParamDoc("priorityHigh", "boolean", false, "Use the high-priority channel", "false"),
-                    ParamDoc("link", "string", false,
-                        "http/https URL opened when tapped. Omit it to open the app instead.",
-                        "https://ci.example.com/build/482")
-                ), """{"capability":"NOTIFICATIONS","action":"post","title":"Build passed","message":"Tap to view","link":"https://ci.example.com/build/482"}""",
-                    """{"posted":true,"id":4211,"opensLink":true}""", handler = { p -> notifyPost(p) })
+                ActionSpec(
+                    "post",
+                    "Show a notification, tappable to a link and with inline action buttons",
+                    listOf(
+                        ParamDoc("title", "string", true, "Notification title", "Hello"),
+                        ParamDoc("message", "string", false, "Body text", "from curl"),
+                        ParamDoc("priorityHigh", "boolean", false, "Use the high-priority channel", "false"),
+                        ParamDoc("link", "string", false,
+                            "http/https URL opened when tapped. Omit it to open the app instead.",
+                            "https://ci.example.com/build/482"),
+                        ParamDoc("buttons", "array", false,
+                            "Inline buttons, at most 3: [{id, label, icon?, input?, invoke?}] " +
+                                "where icon is one of " + NotificationActionContract.ICONS.joinToString("|") +
+                                ", input is {key, hint} for a reply field, and invoke is " +
+                                "\"CAPABILITY:action\" (or \"CAPABILITY:action:param\" to send typed text there). " +
+                                "Pressing a button is still subject to every capability's switch.",
+                            """[{"id":"snooze","label":"Snooze","icon":"alarm","invoke":"ALARM_TIMER:set:minutes"},{"id":"reply","label":"Reply","icon":"reply","input":{"key":"text","hint":"Type a reply"},"invoke":"NOTIFICATIONS:post:text"}]"""
+                        )
+                    ),
+                    """{"capability":"NOTIFICATIONS","action":"post","title":"Build passed","message":"Tap to view","link":"https://ci.example.com/build/482","buttons":[{"id":"done","label":"Mark done","icon":"check","invoke":"CLIPBOARD:write"}]}""",
+                    """{"posted":true,"id":4211,"opensLink":true,"buttonsShown":1,"buttonsDropped":[]}""",
+                    handler = { p -> notifyPost(p) }
+                ),
+                ActionSpec(
+                    "buttonLog",
+                    "Read the notification buttons pressed on this device, newest first",
+                    listOf(
+                        ParamDoc("limit", "integer", false, "How many presses to return", "10")
+                    ),
+                    """{"capability":"NOTIFICATIONS","action":"buttonLog","limit":5}""",
+                    """{"count":1,"presses":[{"buttonId":"done","label":"Mark done","notificationTitle":"Build passed","typedText":null,"invokeTarget":"CLIPBOARD:write","invokeStatus":200,"at":1752000000000}]}""",
+                    handler = { p -> notifyButtonLog(p) }
+                )
             )
         ),
         CapabilitySpec(
@@ -310,11 +342,18 @@ class CapabilityActions(
         val title = p.string("title") ?: return badRequest("Missing 'title'")
         val link = p.string("link")
 
-        val id = provider.postNotification(
+        val buttons = when (val raw = p["buttons"]) {
+            null, is JsonNull -> emptyList()
+            else -> runCatching { parseButtons(raw) }
+                .getOrElse { return badRequest(it.message ?: "invalid 'buttons'") }
+        }
+
+        val posted = provider.postNotification(
             title = title,
             message = p.string("message") ?: "",
             priorityHigh = p.boolean("priorityHigh") ?: false,
-            link = link
+            link = link,
+            buttons = buttons
         ) ?: return ServerResponse(
             500, "application/json",
             """{"error":"Notification could not be posted","hint":"Check the POST_NOTIFICATIONS permission"}"""
@@ -323,8 +362,95 @@ class CapabilityActions(
         return ServerResponse.json(
             buildJsonObject {
                 put("posted", true)
-                put("id", id)
+                put("id", posted.id)
                 put("opensLink", link != null)
+                put("buttonsShown", posted.buttonsShown)
+                put("buttonsDropped", buildJsonArray {
+                    posted.buttonsDropped.forEach { add(JsonPrimitive(it)) }
+                })
+            }.toString()
+        )
+    }
+
+    /**
+     * Raised when the caller's button definitions are unusable.
+     *
+     * The message is what the caller gets back, so it names the offending button and says what was
+     * wrong — a bare stack trace at someone using curl helps nobody.
+     */
+    private class BadButtonDefinition(message: String) : IllegalArgumentException(message)
+
+    /**
+     * Reads the caller's buttons.
+     *
+     * [NotificationButton] refuses a malformed button at construction, so building these is also how
+     * an invalid definition is caught.
+     */
+    private fun parseButtons(raw: JsonElement): List<NotificationButton> {
+        val array = raw as? JsonArray
+            ?: throw BadButtonDefinition("'buttons' must be an array of button objects")
+
+        return array.mapIndexed { index, element ->
+            val obj = element as? JsonObject
+                ?: throw BadButtonDefinition("buttons[$index] must be an object")
+
+            val id = (obj["id"] as? JsonPrimitive)?.content
+                ?: throw BadButtonDefinition("buttons[$index] needs a string 'id'")
+
+            val input = (obj["input"] as? JsonObject)?.let { field ->
+                val key = (field["key"] as? JsonPrimitive)?.content
+                    ?: throw BadButtonDefinition("buttons[$index].input needs a string 'key'")
+                NotificationInput(key = key, hint = (field["hint"] as? JsonPrimitive)?.content ?: "")
+            }
+
+            try {
+                NotificationButton(
+                    id = id,
+                    label = (obj["label"] as? JsonPrimitive)?.content
+                        ?: throw BadButtonDefinition("buttons[$index] ($id) needs a string 'label'"),
+                    icon = (obj["icon"] as? JsonPrimitive)?.content,
+                    input = input,
+                    invoke = (obj["invoke"] as? JsonPrimitive)?.content,
+                    dismissesNotification =
+                        (obj["dismisses"] as? JsonPrimitive)?.content?.toBooleanStrictOrNull() ?: true
+                )
+            } catch (e: BadButtonDefinition) {
+                throw e
+            } catch (e: IllegalArgumentException) {
+                throw BadButtonDefinition("buttons[$index] ($id): ${e.message}")
+            }
+        }
+    }
+
+    private fun notifyButtonLog(p: JsonObject): ServerResponse {
+        val log = actionLog
+            ?: return ServerResponse(
+                501, "application/json",
+                """{"error":"Button history is not being recorded on this build"}"""
+            )
+        val limit = p.int("limit") ?: 10
+        val presses = log.recent(limit)
+
+        return ServerResponse.json(
+            buildJsonObject {
+                put("count", presses.size)
+                put("presses", buildJsonArray {
+                    presses.forEach { record ->
+                        add(
+                            buildJsonObject {
+                                put("buttonId", record.buttonId)
+                                put("label", record.label)
+                                put("notificationId", record.notificationId)
+                                put("notificationTitle", record.notificationTitle)
+                                record.typedText?.let { put("typedText", it) }
+                                record.invokeTarget?.let { put("invokeTarget", it) }
+                                record.invokeStatus?.let { put("invokeStatus", it) }
+                                record.invokeBody?.let { put("invokeResult", it) }
+                                put("at", record.atEpochMillis)
+                            }
+                        )
+                    }
+                })
             }.toString()
         )
     }

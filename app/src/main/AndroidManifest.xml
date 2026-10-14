@@ -246,6 +246,12 @@
             </intent-filter>
         </receiver>
 
+        <!-- Notification button presses. Explicit only, so nothing else can fire it. -->
+        <receiver
+            android:name=".receiver.NotificationActionReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
         <!-- Device Boot & Package Update Receiver -->
         <receiver
             android:name=".receiver.BootReceiver"
