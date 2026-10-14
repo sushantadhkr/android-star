@@ -7,7 +7,12 @@ never require touching the platform shell.
 
 ## 1. Declare it — one annotated file
 
+Apps live in the **`apps/`** module. Create a folder under
+`apps/src/main/java/com/personal/base/apps/` and add one file:
+
 ```kotlin
+package com.personal.base.apps.myapp
+
 @PlatformAppDefinition(id = "my-app", name = "My App", order = 10)
 class MyApp : PlatformApp { ... }
 ```
@@ -16,6 +21,7 @@ class MyApp : PlatformApp { ... }
   orphans the user's saved state.
 - `order` sorts the Apps page. Lower comes first.
 - The registry is generated at build time. **Never hand-edit a registry, never edit the shell.**
+- An App may be one file or a large system. Put related files in a folder next to the annotated one.
 
 ## 2. Implement the contract
 
@@ -156,11 +162,24 @@ class WebcamApp : PlatformApp, CapabilityServingApp {
 
 ## 11. Never modify the platform
 
+- **Apps live in `apps/`, not in the shell.** `apps/` depends on `:core` only — it cannot import the
+  shell, because the shell depends on it, not the other way round.
 - **No new code in the shell.** If you need a capability that does not exist, complete the core
   capability, then consume it.
 - Do not edit the Apps page, Dashboard, Logs, or Settings to special-case your App.
 - Do not add a permission to the manifest — extend the core permission model instead.
 - If a Platform Feature genuinely must change, say so rather than working around it.
+
+### Module layout
+
+```
+:core    capabilities, UI kit, App contract, server        ← Apps may use this
+:apps    your Apps                                          ← depends on :core only
+:app     the shell that hosts Apps                         ← depends on :core + :apps
+```
+
+To add a whole new *module* of Apps, add it to `settings.gradle.kts` and one line to `appModules` in
+`app/build.gradle.kts`. That is the only place a module is listed, and it is not feature code.
 
 ## 12. Before you ship
 

@@ -1,0 +1,16 @@
+-- Merging decision tree log ---
+manifest
+ADDED from /Volumes/External_Main_Drive/Movies/GIT-Projects/android-star/apps/build/intermediates/tmp/ProcessLibraryManifest/release/tempAndroidManifest13062105693396336506.xml:2:13-83
+INJECTED from /Volumes/External_Main_Drive/Movies/GIT-Projects/android-star/apps/build/intermediates/tmp/ProcessLibraryManifest/release/tempAndroidManifest13062105693396336506.xml:2:13-83
+	package
+		INJECTED from /Volumes/External_Main_Drive/Movies/GIT-Projects/android-star/apps/build/intermediates/tmp/ProcessLibraryManifest/release/tempAndroidManifest13062105693396336506.xml
+	xmlns:android
+		ADDED from /Volumes/External_Main_Drive/Movies/GIT-Projects/android-star/apps/build/intermediates/tmp/ProcessLibraryManifest/release/tempAndroidManifest13062105693396336506.xml:2:23-81
+uses-sdk
+INJECTED from /Volumes/External_Main_Drive/Movies/GIT-Projects/android-star/apps/build/intermediates/tmp/ProcessLibraryManifest/release/tempAndroidManifest13062105693396336506.xml reason: use-sdk injection requested
+INJECTED from /Volumes/External_Main_Drive/Movies/GIT-Projects/android-star/apps/build/intermediates/tmp/ProcessLibraryManifest/release/tempAndroidManifest13062105693396336506.xml
+INJECTED from /Volumes/External_Main_Drive/Movies/GIT-Projects/android-star/apps/build/intermediates/tmp/ProcessLibraryManifest/release/tempAndroidManifest13062105693396336506.xml
+	android:targetSdkVersion
+		INJECTED from /Volumes/External_Main_Drive/Movies/GIT-Projects/android-star/apps/build/intermediates/tmp/ProcessLibraryManifest/release/tempAndroidManifest13062105693396336506.xml
+	android:minSdkVersion
+		INJECTED from /Volumes/External_Main_Drive/Movies/GIT-Projects/android-star/apps/build/intermediates/tmp/ProcessLibraryManifest/release/tempAndroidManifest13062105693396336506.xml

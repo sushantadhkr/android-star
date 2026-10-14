@@ -221,16 +221,17 @@ Some surfaces are **pinned**: fixed, toggle-only, cannot be moved or hidden.
 :core              the core library — capabilities, transport, storage, security,
                    UI kit, embedded server. Has no features of its own.
 
+:apps              your Apps. Depends on :core only, and cannot reach the shell.
+
 :app              the Platform App shell — navigation, page hosts, App discovery and
                    rendering, App toggle state, pinned Platform Features.
+                   No features of its own.
 
 buildSrc          generates the App registry from @PlatformAppDefinition declarations.
-
-apps/             Apps, additive forever — from a single file to a large system.
 ```
 
-The dependency runs one way: `:app` depends on `:core`, never the reverse. A `:core` reference to
-shell code is a **compile error**.
+Dependencies run one way: `:app` depends on `:core` and `:apps`, and `:apps` depends only on
+`:core`. A `:core` or `:apps` reference to shell code is a **compile error**.
 
 ---
 

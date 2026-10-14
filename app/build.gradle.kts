@@ -6,6 +6,14 @@ plugins {
   alias(libs.plugins.kotlin.serialization)
 }
 
+/**
+ * Every Gradle module that may declare an App.
+ *
+ * Apps are scanned for @PlatformAppDefinition to build the registry. To add another App module,
+ * add one line here — the shell itself is never edited.
+ */
+val appModules: List<String> = listOf(":apps")
+
 // ---------------------------------------------------------------------------
 // Release signing credentials.
 //
@@ -109,9 +117,11 @@ kotlin {
 }
 
 dependencies {
-  // The core library: capabilities, transport, storage, security, UI-agnostic primitives.
-  // Apps depend on this; the shell never defines features.
+  // The core library: capabilities, transport, storage, security, UI kit, App contract.
   implementation(project(":core"))
+
+  // Apps live in their own module. The shell hosts them; it never defines them.
+  implementation(project(":apps"))
 
   val composeBom = platform(libs.androidx.compose.bom)
   implementation(composeBom)
@@ -166,6 +176,16 @@ dependencies {
 // ---------------------------------------------------------------------------
 val generateAppRegistry = tasks.register<GenerateAppRegistryTask>("generateAppRegistry") {
     sourceDirs.from(files("src/main/java", "src/main/kotlin"))
+
+    // Apps live outside this module. List every module that may declare an App here; adding one
+    // is a single line, and requires no edit to the shell.
+    appModules.forEach { modulePath ->
+        sourceDirs.from(
+            project(modulePath).layout.projectDirectory.dir("src/main/java"),
+            project(modulePath).layout.projectDirectory.dir("src/main/kotlin")
+        )
+    }
+
     outputDirectory.set(layout.buildDirectory.dir("generated/appregistry"))
 }
 

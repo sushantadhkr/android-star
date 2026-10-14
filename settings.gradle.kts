@@ -32,3 +32,6 @@ plugins {
 rootProject.name = "PersonalBase"
 include(":app")
 include(":core")
+
+// Apps live in their own module so they can never reach the platform shell.
+include(":apps")
