@@ -51,11 +51,103 @@ class CapabilityApi(
         server.registerRoute("/api/capabilities") { handleList() }
         server.registerRoute("/api/capabilities/status") { handleList() }
 
+        // Self-describing documentation, generated from the same specs that implement the actions.
+        server.registerRoute("/api/capabilities/docs") { handleDocs() }
+
         // Drive a capability. The gate is checked here, before any action runs.
         server.registerRoute("/api/capabilities/invoke") { handleInvoke(it) }
 
         // Per-capability switch, and the master switch.
         server.registerRoute("/api/capabilities/toggle") { handleToggle(it) }
+    }
+
+    /**
+     * Documentation for every endpoint and action.
+     *
+     * Rendered from [CapabilityActions.specs], so it is generated from the implementation and cannot
+     * fall out of date.
+     */
+    private fun handleDocs(): ServerResponse = ServerResponse.json(
+        buildJsonObject {
+            put("title", "Android Star — Capabilities API")
+            put("port", com.personal.base.core.platform.EmbeddedServer.DEFAULT_PORT)
+            put(
+                "authentication",
+                "Send 'Authorization: Bearer <token>'. The token is shown in Settings → API access " +
+                    "token and can be rotated there."
+            )
+            put("note", "A capability switched off is never invoked; requests get 403.")
+
+            put("endpoints", buildJsonArray {
+                endpoint("/api/capabilities", "GET", "List every capability with status and actions")
+                endpoint("/api/capabilities/status", "GET", "Alias of /api/capabilities")
+                endpoint("/api/capabilities/docs", "GET", "This document")
+                endpoint("/api/capabilities/invoke", "POST", "Run a capability action")
+                endpoint("/api/capabilities/toggle", "POST", "Switch a capability, or all of them")
+                endpoint("/api/apps/<id>/<path>", "GET", "Endpoints published by Apps that serve")
+            })
+
+            put("invokeBody", buildJsonObject {
+                put("capability", JsonPrimitive("CAPABILITY_ID"))
+                put("action", JsonPrimitive("action name"))
+            })
+
+            put("toggleBody", buildJsonObject {
+                put("capability", JsonPrimitive("CAPABILITY_ID or omit for the master switch"))
+                put("enabled", JsonPrimitive(true))
+            })
+
+            put("capabilities", buildJsonArray {
+                actions.specs.forEach { spec ->
+                    add(
+                        buildJsonObject {
+                            put("id", spec.type.name)
+                            put("displayName", spec.type.displayName)
+                            put("description", spec.type.description)
+                            put("summary", spec.summary)
+                            put(
+                                "requiredPermissions",
+                                buildJsonArray {
+                                    spec.type.requiredPermissions.forEach { add(JsonPrimitive(it)) }
+                                }
+                            )
+                            put("actions", buildJsonArray {
+                                spec.actions.forEach { action ->
+                                    add(
+                                        buildJsonObject {
+                                            put("name", action.name)
+                                            put("summary", action.summary)
+                                            put("requiresUserConsent", action.requiresUserConsent)
+                                            put("params", buildJsonArray {
+                                                action.params.forEach { param ->
+                                                    add(
+                                                        buildJsonObject {
+                                                            put("name", param.name)
+                                                            put("type", param.type)
+                                                            put("required", param.required)
+                                                            put("description", param.description)
+                                                            param.example?.let { put("example", it) }
+                                                        }
+                                                    )
+                                                }
+                                            })
+                                            put("exampleRequest", action.example)
+                                            put("exampleResponse", action.returns)
+                                        }
+                                    )
+                                }
+                            })
+                        }
+                    )
+                }
+            })
+        }.toString()
+    )
+
+    private fun endpoint(path: String, method: String, summary: String) = buildJsonObject {
+        put("path", path)
+        put("method", method)
+        put("summary", summary)
     }
 
     /**
@@ -154,7 +246,7 @@ class CapabilityApi(
                             put(
                                 "actions",
                                 buildJsonArray {
-                                    CapabilityActions.actionsFor(entry.type).forEach { add(JsonPrimitive(it)) }
+                                    actions.actionsFor(entry.type).forEach { add(JsonPrimitive(it)) }
                                 }
                             )
                             put(

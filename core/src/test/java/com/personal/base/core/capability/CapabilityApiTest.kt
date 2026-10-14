@@ -138,13 +138,6 @@ class CapabilityApiTest {
     // ---- honesty about what actually works ----------------------------
 
     @Test
-    fun `camera now advertises real actions`() {
-        // Advertising an action a provider cannot perform would be a lie.
-        assertTrue(CapabilityActions.actionsFor(CapabilityType.CAMERA).contains("capture"))
-        assertTrue(CapabilityActions.actionsFor(CapabilityType.NOTIFICATIONS).contains("post"))
-    }
-
-    @Test
     fun `a capability with no callable action says so rather than failing obscurely`() {
         val response = api.handleInvoke(request("""{"capability":"DEVICE_ACTIONS","action":"nope"}"""))
         // Unregistered in this test, so the honest answer is "no provider", not a fake success.

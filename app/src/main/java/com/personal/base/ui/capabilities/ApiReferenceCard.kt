@@ -88,7 +88,9 @@ fun ApiReferenceCard(tokenStore: com.personal.base.core.security.ApiTokenStore) 
                 )
                 CodeBlock(
                     """
-                    curl -H "Authorization: Bearer $token" http://PHONE:$port/api/capabilities
+                    # the full self-describing reference
+                    curl -H "Authorization: Bearer $token" http://PHONE:$port/api/capabilities/docs \
+                      | jq '.capabilities[] | {id, actions: [.actions[].name]}'
                     """.trimIndent()
                 )
 
@@ -96,6 +98,11 @@ fun ApiReferenceCard(tokenStore: com.personal.base.core.security.ApiTokenStore) 
                     text = "Endpoints",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "GET  /api/capabilities/docs     full docs for every action",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace
                 )
                 Text(
                     text = "GET  /api/capabilities         every capability, status + actions",

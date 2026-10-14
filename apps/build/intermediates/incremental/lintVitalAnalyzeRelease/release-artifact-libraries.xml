@@ -1,9 +1,9 @@
 <libraries>
   <library
       name=":@@:core::release"
-      jars="/Users/sushantadhikari/.gradle/caches/9.1.0/transforms/362f850a7f83adb02407d147495a89eb/transformed/out/jars/classes.jar:/Users/sushantadhikari/.gradle/caches/9.1.0/transforms/362f850a7f83adb02407d147495a89eb/transformed/out/jars/libs/R.jar"
+      jars="/Users/sushantadhikari/.gradle/caches/9.1.0/transforms/f0a0dcc82f853fa68de2f1701bda5628/transformed/out/jars/classes.jar:/Users/sushantadhikari/.gradle/caches/9.1.0/transforms/f0a0dcc82f853fa68de2f1701bda5628/transformed/out/jars/libs/R.jar"
       resolved="PersonalBase:core:unspecified"
-      folder="/Users/sushantadhikari/.gradle/caches/9.1.0/transforms/362f850a7f83adb02407d147495a89eb/transformed/out"
+      folder="/Users/sushantadhikari/.gradle/caches/9.1.0/transforms/f0a0dcc82f853fa68de2f1701bda5628/transformed/out"
       manifest="AndroidManifest.xml"
       resFolder="res"
       assetsFolder="assets"
