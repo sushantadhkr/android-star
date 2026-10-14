@@ -98,12 +98,15 @@ class CapabilityActions(
         ),
         CapabilitySpec(
             CapabilityType.NOTIFICATIONS, "Post a notification to the shade", listOf(
-                ActionSpec("post", "Show a notification", listOf(
+                ActionSpec("post", "Show a notification, optionally tappable to open a link", listOf(
                     ParamDoc("title", "string", true, "Notification title", "Hello"),
                     ParamDoc("message", "string", false, "Body text", "from curl"),
-                    ParamDoc("priorityHigh", "boolean", false, "Use the high-priority channel", "false")
-                ), """{"capability":"NOTIFICATIONS","action":"post","title":"Hello","message":"from curl"}""",
-                    """{"posted":true}""", handler = { p -> notifyPost(p) })
+                    ParamDoc("priorityHigh", "boolean", false, "Use the high-priority channel", "false"),
+                    ParamDoc("link", "string", false,
+                        "http/https URL opened when tapped. Omit it to open the app instead.",
+                        "https://ci.example.com/build/482")
+                ), """{"capability":"NOTIFICATIONS","action":"post","title":"Build passed","message":"Tap to view","link":"https://ci.example.com/build/482"}""",
+                    """{"posted":true,"id":4211,"opensLink":true}""", handler = { p -> notifyPost(p) })
             )
         ),
         CapabilitySpec(
@@ -305,8 +308,25 @@ class CapabilityActions(
         val provider = provider<NotificationCapabilityProvider>(CapabilityType.NOTIFICATIONS)
             ?: return unsupported(CapabilityType.NOTIFICATIONS)
         val title = p.string("title") ?: return badRequest("Missing 'title'")
-        provider.postNotification(title, p.string("message") ?: "", p.boolean("priorityHigh") ?: false)
-        return ServerResponse.json("""{"posted":true}""")
+        val link = p.string("link")
+
+        val id = provider.postNotification(
+            title = title,
+            message = p.string("message") ?: "",
+            priorityHigh = p.boolean("priorityHigh") ?: false,
+            link = link
+        ) ?: return ServerResponse(
+            500, "application/json",
+            """{"error":"Notification could not be posted","hint":"Check the POST_NOTIFICATIONS permission"}"""
+        )
+
+        return ServerResponse.json(
+            buildJsonObject {
+                put("posted", true)
+                put("id", id)
+                put("opensLink", link != null)
+            }.toString()
+        )
     }
 
     private fun notifyReadClipboard(): ServerResponse {

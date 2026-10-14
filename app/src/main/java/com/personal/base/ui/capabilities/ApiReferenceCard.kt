@@ -137,6 +137,11 @@ fun ApiReferenceCard(tokenStore: com.personal.base.core.security.ApiTokenStore) 
                       -d '{"capability":"NOTIFICATIONS","action":"post",
                            "title":"Hello","message":"from curl"}'
 
+                    # tappable: opens the link instead of the app
+                    curl -H "Authorization: Bearer $token" -X POST http://PHONE:$port/api/capabilities/invoke \\
+                      -d '{"capability":"NOTIFICATIONS","action":"post","title":"Build passed",
+                           "message":"Tap to view","link":"https://ci.example.com/build/482"}'
+
                     # vibrate
                     curl -H "Authorization: Bearer $token" -X POST http://PHONE:$port/api/capabilities/invoke \\
                       -d '{"capability":"DEVICE_ACTIONS","action":"haptic","durationMs":200}'

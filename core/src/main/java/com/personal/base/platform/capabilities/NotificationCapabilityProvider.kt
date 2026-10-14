@@ -91,27 +91,28 @@ class NotificationCapabilityProvider(
      * channel. An App passes its own channel so its notifications stay under the Apps group, where
      * the user can silence that App without affecting the platform.
      *
+     * [link] makes the notification actionable: tapping it opens that URL in whatever handles it,
+     * instead of launching this app. Omit it and tapping opens the app as before.
+     *
      * The channel must already exist or Android drops the notification, so callers posting to an
      * App channel must create it first.
+     *
+     * @return the id used, or null when the notification could not be posted.
      */
     fun postNotification(
         title: String,
         message: String,
         priorityHigh: Boolean = false,
         channelId: String = if (priorityHigh) CHANNEL_HIGH_PRIORITY else CHANNEL_INFO,
-        notificationId: Int = (System.currentTimeMillis() % 100000).toInt()
-    ) {
+        notificationId: Int = (System.currentTimeMillis() % 100000).toInt(),
+        link: String? = null
+    ): Int? {
         if (!status.isUsable) {
             logger.w("NotificationProvider", "Cannot post notification: status is $status")
-            return
+            return null
         }
 
-        // Resolve the launcher activity rather than referencing a specific Activity class,
-        // so this capability stays independent of the shell and any consuming app.
-        val launchIntent = context.packageManager
-            .getLaunchIntentForPackage(context.packageName)
-            ?.apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP }
-        val intent = launchIntent ?: Intent(Intent.ACTION_VIEW)
+        val intent = resolveTapIntent(link)
 
         val pendingIntent = PendingIntent.getActivity(
             context,
@@ -120,20 +121,56 @@ class NotificationCapabilityProvider(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notification = NotificationCompat.Builder(context, channelId)
+        val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(title)
             .setContentText(message)
             .setPriority(if (priorityHigh) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
-            .build()
+
+        // Only http/https are allowed through, so a notification can never be used to launch an
+        // arbitrary intent on the device.
+        if (link != null) builder.setSubText("Tap to open")
+
+        val notification = builder.build()
 
         try {
             notificationManager?.notify(notificationId, notification)
-            logger.i("NotificationProvider", "Posted notification: [$title] $message")
+            logger.i("NotificationProvider", "Posted notification: [$title] $message${if (link != null) " -> $link" else ""}")
+            return notificationId
         } catch (e: SecurityException) {
             logger.e("NotificationProvider", "Security exception posting notification", e.message)
+            return null
         }
+    }
+
+    /**
+     * What tapping the notification does.
+     *
+     * With a link, it opens that URL via the normal system handler, so a browser or another app
+     * deals with it. Only http and https are honoured — anything else falls back to launching this
+     * app, so a link can never be used to fire an arbitrary intent at the device.
+     *
+     * Without a link, the app's own launcher activity opens, resolved reflectively so this
+     * capability stays independent of the shell.
+     */
+    private fun resolveTapIntent(link: String?): Intent {
+        val openable = link?.takeIf { runCatching { android.net.Uri.parse(it).scheme }.getOrNull() in
+                setOf("http", "https") }
+
+        if (openable != null) {
+            return Intent(Intent.ACTION_VIEW, android.net.Uri.parse(openable))
+                .apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+        }
+
+        if (link != null) {
+            logger.w("NotificationProvider", "Ignoring non-http(s) link: $link")
+        }
+
+        val launchIntent = context.packageManager
+            .getLaunchIntentForPackage(context.packageName)
+            ?.apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP }
+        return launchIntent ?: Intent(Intent.ACTION_VIEW)
     }
 }

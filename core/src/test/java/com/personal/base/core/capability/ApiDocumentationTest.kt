@@ -104,4 +104,24 @@ class ApiDocumentationTest {
     fun `docs are served for every documented capability`() {
         assertTrue("no capabilities documented", actions.specs.isNotEmpty())
     }
+
+    @Test
+    fun `posting a notification documents the link parameter`() {
+        val post = actions.specFor(CapabilityType.NOTIFICATIONS)!!.action("post")!!
+        assertTrue(
+            "the link option must be documented",
+            post.params.any { it.name == "link" }
+        )
+        assertTrue(
+            "the example must show a link being used",
+            post.example.contains("\"link\"")
+        )
+    }
+
+    @Test
+    fun `the link parameter is optional so a plain notification still works`() {
+        val post = actions.specFor(CapabilityType.NOTIFICATIONS)!!.action("post")!!
+        val link = post.params.first { it.name == "link" }
+        assertTrue("link must be optional", !link.required)
+    }
 }
