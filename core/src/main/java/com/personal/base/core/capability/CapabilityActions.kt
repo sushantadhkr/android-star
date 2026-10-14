@@ -19,10 +19,13 @@ import com.personal.base.platform.capabilities.NetworkUsageCapabilityProvider
 import com.personal.base.platform.capabilities.NotificationCapabilityProvider
 import com.personal.base.platform.capabilities.QrBarcodeCapabilityProvider
 import com.personal.base.platform.capabilities.ScreenCaptureCapabilityProvider
+import com.personal.base.platform.capabilities.SmsCapabilityProvider
+import com.personal.base.platform.capabilities.SmsMessage
 import com.personal.base.platform.capabilities.SensorsCapabilityProvider
 import com.personal.base.platform.capabilities.SystemSettingsCapabilityProvider
 import com.personal.base.platform.capabilities.TextToSpeechCapabilityProvider
 import com.personal.base.platform.capabilities.WifiCapabilityProvider
+import com.personal.base.platform.permissions.RestrictedPermissions
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -139,6 +142,24 @@ class CapabilityActions(
                     """{"count":1,"presses":[{"buttonId":"done","label":"Mark done","notificationTitle":"Build passed","typedText":null,"invokeTarget":"CLIPBOARD:write","invokeStatus":200,"at":1752000000000}]}""",
                     handler = { p -> notifyButtonLog(p) }
                 )
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.SMS, "Read the SMS inbox", listOf(
+                ActionSpec("count", "How many messages the inbox holds", emptyList(),
+                    """{"capability":"SMS","action":"count"}""",
+                    """{"count":214}""", handler = { p -> smsCount(p) }),
+                ActionSpec("list", "Read recent inbox messages, newest first", listOf(
+                    ParamDoc("limit", "integer", false, "How many messages, 1-200", "20"),
+                    ParamDoc("search", "string", false, "Only messages whose body or sender contains this", "invoice")
+                ), """{"capability":"SMS","action":"list","limit":3}""",
+                    """{"count":3,"messages":[{"id":41,"address":"+441234","body":"Invoice ready","date":1752000000000,"type":"inbox","read":false}]}""",
+                    handler = { p -> smsList(p) }),
+                ActionSpec("read", "Read one message by its id", listOf(
+                    ParamDoc("id", "integer", true, "The message id, as returned by list", "41")
+                ), """{"capability":"SMS","action":"read","id":41}""",
+                    """{"id":41,"address":"+441234","body":"Invoice ready","date":1752000000000,"type":"inbox","read":false}""",
+                    handler = { p -> smsRead(p) })
             )
         ),
         CapabilitySpec(
@@ -468,6 +489,60 @@ class CapabilityActions(
         provider.setText(text)
         return ServerResponse.json("""{"written":true}""")
     }
+
+    // ---- SMS ------------------------------------------------------------
+
+    private fun smsCount(p: JsonObject): ServerResponse {
+        val provider = provider<SmsCapabilityProvider>(CapabilityType.SMS)
+            ?: return unsupported(CapabilityType.SMS)
+        val count = provider.count() ?: return smsRefused()
+        return ServerResponse.json("""{"count":$count}""")
+    }
+
+    private fun smsList(p: JsonObject): ServerResponse {
+        val provider = provider<SmsCapabilityProvider>(CapabilityType.SMS)
+            ?: return unsupported(CapabilityType.SMS)
+        val messages = provider.list(
+            limit = p.int("limit") ?: 20,
+            search = p.string("search")
+        ) ?: return smsRefused()
+
+        return ServerResponse.json(
+            buildJsonObject {
+                put("count", messages.size)
+                put("messages", buildJsonArray { messages.forEach { add(smsJson(it)) } })
+            }.toString()
+        )
+    }
+
+    private fun smsRead(p: JsonObject): ServerResponse {
+        val provider = provider<SmsCapabilityProvider>(CapabilityType.SMS)
+            ?: return unsupported(CapabilityType.SMS)
+        val id = p.long("id") ?: return badRequest("Missing 'id'")
+        val message = provider.read(id) ?: return smsRefused()
+        return ServerResponse.json(smsJson(message).toString())
+    }
+
+    private fun smsJson(message: SmsMessage) = buildJsonObject {
+        put("id", message.id)
+        put("address", message.address)
+        put("body", message.body)
+        put("date", message.timestampMillis)
+        put("type", message.type)
+        put("read", message.read)
+    }
+
+    /**
+     * A refused read.
+     *
+     * Deliberately not an empty result: an empty inbox and a blocked inbox look identical otherwise,
+     * and acting on that difference is how a phone silently stops reporting its messages. The hint
+     * names the screen where the grant actually lives, because the runtime dialog cannot grant it.
+     */
+    private fun smsRefused() = ServerResponse(
+        403, "application/json",
+        """{"error":"Reading SMS was refused","hint":"Grant it from ${RestrictedPermissions.settingsLabel()}; it cannot be granted from a runtime dialog"}"""
+    )
 
     private fun cameraList(p: JsonObject): ServerResponse {
         val provider = provider<CameraMicCapabilityProvider>(CapabilityType.CAMERA)

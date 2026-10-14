@@ -325,6 +325,49 @@ curl -H "$H" -X POST http://PHONE:8899/api/capabilities/toggle \
 | `POST /api/capabilities/toggle` | Switch one capability, or all of them |
 | `GET /api/apps/<id>/<path>` | Endpoints published by Apps that serve |
 
+### The console
+
+`index.html` is a browser front end for everything above. Open it, type the address and the token,
+and it renders the entire capability surface as working forms.
+
+```
+open index.html          # then: Server → http://100.101.227.77:8899, paste the token, Connect
+```
+
+| | |
+|---|---|
+| **Server** | Editable in the page. Defaults to the phone's Tailscale address |
+| **Token** | From Settings → API access token. Kept in `localStorage`, never sent anywhere but your phone |
+| **Sidebar** | Every capability, split by whether it has actions, with a live status dot |
+| **Actions** | A form per action, built from its own declared parameters |
+| **Fill from example** | Pre-fills the form from the documented example request |
+| **Switches** | Per-capability and master toggles, straight from the sidebar |
+
+It needs no build step and no dependencies — it is one file. It contains nothing the platform did
+not already tell it: the entire interface is generated from `GET /api/capabilities/docs`, so it
+cannot describe a capability that does not exist or an action that was removed.
+
+`tools/check-console.js` renders the page against the real docs payload and checks that every
+action gets a control for each of its parameters, that a capability without actions invents none,
+and that a hostile capability name cannot inject HTML. Regenerate the fixture with
+`./gradlew :core:testDebugUnitTest --tests '*DocsFixtureTest'`.
+
+### SMS and Call history
+
+These cannot be granted from a runtime dialog. On Android 10+ they live behind
+**Settings → Apps → Special app access → SMS and Call history**, and are checked through AppOps
+rather than `checkSelfPermission` — which reports them as denied even when they are granted.
+
+```bash
+-d '{"capability":"SMS","action":"list","limit":3}'
+-d '{"capability":"SMS","action":"count"}'
+-d '{"capability":"SMS","action":"read","id":41}'
+```
+
+A refused read answers `403` naming the screen where the grant lives, never an empty result — an
+empty inbox and a blocked inbox look identical otherwise, and that difference is how a phone
+quietly stops reporting its messages.
+
 ### The gate is authoritative
 
 A capability you switch off is **never invoked**. The check happens before the action is
