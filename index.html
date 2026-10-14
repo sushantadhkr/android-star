@@ -518,6 +518,10 @@ function capCard(c) {
       : "") +
     "</div>";
 
+  if (c.statusReason) {
+    html += '<p class="hint" style="margin-top:9px">' + esc(c.statusReason) + "</p>";
+  }
+
   if (n) {
     html += '<details class="act" style="margin-top:11px"><summary>' +
       '<span class="nm">actions</span><span class="ds">' + n + " available</span></summary>" +

@@ -16,8 +16,23 @@ sealed interface CapabilityStatus {
     /** The capability is available, but currently disabled by user platform policy. */
     data class DisabledByUser(val policyReason: String) : CapabilityStatus
 
+    /**
+     * The capability works for some of what it claims and not the rest.
+     *
+     * For the clipboard this is the real shape of the thing: writing has always been allowed, while
+     * reading is restricted by Android to the focused app and the current keyboard. Reporting it
+     * as simply "available" would promise the half that cannot work.
+     */
+    data class Partial(val whatWorks: String, val whatDoesNot: String) : CapabilityStatus
+
+    /**
+     * Whether the capability can be invoked at all.
+     *
+     * Partial counts: the working half is still worth calling. Whether a *particular* action works
+     * is the action's own business to say, not this flag's.
+     */
     val isUsable: Boolean
-        get() = this is Available
+        get() = this is Available || this is Partial
 }
 
 /**

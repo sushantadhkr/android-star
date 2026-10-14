@@ -8,6 +8,7 @@ import com.personal.base.core.platform.ServerResponse
 import com.personal.base.platform.capabilities.BatteryPowerCapabilityProvider
 import com.personal.base.platform.capabilities.CameraMicCapabilityProvider
 import com.personal.base.platform.capabilities.ClipboardCapabilityProvider
+import com.personal.base.platform.capabilities.ClipboardRead
 import com.personal.base.platform.capabilities.ConnectivityCapabilityProvider
 import com.personal.base.platform.capabilities.DeviceActionCapabilityProvider
 import com.personal.base.platform.capabilities.DeviceInfoCapabilityProvider
@@ -164,8 +165,9 @@ class CapabilityActions(
         ),
         CapabilitySpec(
             CapabilityType.CLIPBOARD, "Read and write the clipboard", listOf(
-                ActionSpec("read", "Read clipboard text", emptyList(),
-                    """{"capability":"CLIPBOARD","action":"read"}""", """{"text":"..."}""") { notifyReadClipboard() },
+                ActionSpec("read", "Read clipboard text, if Android permits it", emptyList(),
+                    """{"capability":"CLIPBOARD","action":"read"}""",
+                    """{"text":"...","readable":true}""", handler = { p -> clipboardRead() }),
                 ActionSpec("write", "Replace clipboard text", listOf(
                     ParamDoc("text", "string", true, "Text to place on the clipboard", "hello")
                 ), """{"capability":"CLIPBOARD","action":"write","text":"hello"}""",
@@ -476,10 +478,36 @@ class CapabilityActions(
         )
     }
 
-    private fun notifyReadClipboard(): ServerResponse {
+    /**
+ * Reads the clipboard, saying plainly when Android will not allow it.
+ *
+ * Android 10 restricts clipboard reads to the focused app and the current keyboard. A background
+ * host is neither, so the read comes back empty — and "empty" is a lie here, because it tells the
+ * caller the clipboard is blank when in fact they were not allowed to look. A refusal answers 403
+ * with what would lift it.
+ */
+private fun clipboardRead(): ServerResponse {
         val provider = provider<ClipboardCapabilityProvider>(CapabilityType.CLIPBOARD)
             ?: return unsupported(CapabilityType.CLIPBOARD)
-        return ServerResponse.json(buildJsonObject { put("text", provider.getText() ?: "") }.toString())
+
+        return when (val read = provider.read()) {
+            is ClipboardRead.Text -> ServerResponse.json(
+                buildJsonObject {
+                    put("text", read.value)
+                    put("readable", true)
+                }.toString()
+            )
+
+            ClipboardRead.Empty -> ServerResponse.json("""{"text":"","readable":true,"empty":true}""")
+
+            ClipboardRead.Refused -> ServerResponse(
+                403, "application/json",
+                """{"error":"Android refused the clipboard read","readable":false,""" +
+                    """"hint":"Android only lets the focused app or the current keyboard read the clipboard. """ +
+                    """Set Android Star as your keyboard, or have an App read it from its own focused page.",""" +
+                    """"writesStillWork":true}"""
+            )
+        }
     }
 
     private fun clipboardWrite(p: JsonObject): ServerResponse {

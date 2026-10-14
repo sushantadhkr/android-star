@@ -503,6 +503,9 @@ private fun blockedReason(entry: CapabilityEntry): String = when {
             (entry.status as CapabilityStatus.PermissionRequired).missingPermissions.joinToString()
     entry.status is CapabilityStatus.Unavailable ->
         (entry.status as CapabilityStatus.Unavailable).reason
+    entry.status is CapabilityStatus.Partial ->
+        // Which half works is the only useful thing to say about a partially-usable capability.
+        (entry.status as CapabilityStatus.Partial).whatDoesNot
     else -> "Available"
 }
 
@@ -513,6 +516,8 @@ fun StatusPill(status: CapabilityStatus) {
         is CapabilityStatus.PermissionRequired -> "Permission Required" to MaterialTheme.colorScheme.error
         is CapabilityStatus.DisabledByUser -> "Disabled" to MaterialTheme.colorScheme.outline
         is CapabilityStatus.Unavailable -> "Unavailable" to MaterialTheme.colorScheme.outline
+        // Not an error: the capability works for part of what it does.
+        is CapabilityStatus.Partial -> "Partial" to MaterialTheme.colorScheme.tertiary
     }
 
     Badge(containerColor = color) {

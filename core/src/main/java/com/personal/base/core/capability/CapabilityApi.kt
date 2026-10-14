@@ -304,6 +304,7 @@ class CapabilityApi(
                             put("switchedOn", entry.isSwitchedOn)
                             put("usable", entry.isUsable)
                             put("status", statusName(entry.status))
+                                statusReason(entry.status)?.let { put("statusReason", it) }
                             put(
                                 "actions",
                                 buildJsonArray {
@@ -328,5 +329,20 @@ class CapabilityApi(
         is CapabilityStatus.Unavailable -> "unavailable"
         is CapabilityStatus.PermissionRequired -> "permission_required"
         is CapabilityStatus.DisabledByUser -> "disabled_by_user"
+        is CapabilityStatus.Partial -> "partial"
+    }
+
+    /**
+     * Why a status is what it is, for the cases where a bare word tells the user nothing.
+     *
+     * "partial" on its own is not information. Saying which half works is the difference between a
+     * status and an excuse.
+     */
+    private fun statusReason(status: CapabilityStatus): String? = when (status) {
+        is CapabilityStatus.Available -> null
+        is CapabilityStatus.Unavailable -> status.reason
+        is CapabilityStatus.PermissionRequired -> status.missingPermissions.joinToString("\n")
+        is CapabilityStatus.DisabledByUser -> status.policyReason
+        is CapabilityStatus.Partial -> "${status.whatWorks} works. ${status.whatDoesNot}"
     }
 }

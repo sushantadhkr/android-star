@@ -387,6 +387,30 @@ control for each of its parameters, that a capability without actions invents no
 capability name cannot inject HTML, and that the served asset cannot drift from the source.
 Regenerate the fixture with `./gradlew :core:testDebugUnitTest --tests '*DocsFixtureTest'`.
 
+### The clipboard can be written but not read
+
+Android 10 restricted clipboard **reads**. Only two roles may call `getPrimaryClip()`: the app
+holding window focus, and the current input method. The system says so itself:
+
+```
+E ClipboardService: Denying clipboard access … application is not in focus
+  nor is it a system service for user 0
+```
+
+The always-on host is a background service — no window, not a system service — so it writes
+perfectly well and reads nothing. Measured on the device: `hasPrimaryClip=false`, `readText=null`.
+
+This is not a bug to route around; it is Android protecting the clipboard from background apps. The
+platform's part was to stop lying about it:
+
+- `read` answers **403** with the reason, not an empty string. `{"text":""}` would tell the caller
+  the clipboard is blank, which is a different and false thing.
+- The capability reports **partial** — writing works, reading does not — and says which half.
+
+What would lift it: setting Android Star as your keyboard, since only the IME gets clipboard access
+in the background, or having an App read the clipboard while its own page is focused. Neither is
+something the platform should do on your behalf — replacing your keyboard is your decision.
+
 ### SMS and Call history
 
 These cannot be granted from a runtime dialog, and — as measured on a real Android 16 device —
