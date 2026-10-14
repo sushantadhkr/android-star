@@ -58,12 +58,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.personal.base.platform.permissions.RestrictedPermissions
 
 data class PermissionCategory(
     val title: String,
     val description: String,
     val icon: ImageVector,
-    val permissions: List<String>
+    val permissions: List<String>,
+    /**
+     * True when these permissions are AppOps-managed (SMS and Call Log). They cannot be granted
+     * through a runtime dialog on Android 10+, so they are routed to system settings instead of
+     * being requested — otherwise the request silently fails with no dialog and no explanation.
+     */
+    val needsSpecialAccess: Boolean = false
 )
 
 @Composable
@@ -108,7 +115,8 @@ fun OnboardingScreen(
                 permissions = listOf(
                     android.Manifest.permission.READ_CALL_LOG,
                     android.Manifest.permission.WRITE_CALL_LOG
-                )
+                ),
+                needsSpecialAccess = true
             )
         )
 
@@ -121,7 +129,8 @@ fun OnboardingScreen(
                     android.Manifest.permission.READ_SMS,
                     android.Manifest.permission.RECEIVE_SMS,
                     android.Manifest.permission.SEND_SMS
-                )
+                ),
+                needsSpecialAccess = true
             )
         )
 
@@ -219,9 +228,23 @@ fun OnboardingScreen(
         list
     }
 
-    // Collect all permissions into a flat array
-    val allRequiredPermissions = remember(permissionGroups) {
-        permissionGroups.flatMap { it.permissions }.distinct().toTypedArray()
+    // Permissions that the runtime dialog can actually grant. SMS and Call Log are AppOps-managed on
+// Android 10+, where requestPermissions() denies them silently without showing a dialog — so they
+// are excluded here and routed to system settings instead.
+    val runtimeRequestablePermissions = remember(permissionGroups) {
+        permissionGroups
+            .filterNot { it.needsSpecialAccess }
+            .flatMap { it.permissions }
+            .distinct()
+            .filterNot { RestrictedPermissions.requiresSpecialAccess(it) }
+            .toTypedArray()
+    }
+
+    val specialAccessPermissions = remember(permissionGroups) {
+        permissionGroups
+            .flatMap { it.permissions }
+            .filter { RestrictedPermissions.requiresSpecialAccess(it) }
+            .distinct()
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -245,7 +268,7 @@ fun OnboardingScreen(
                 ) {
                     Button(
                         onClick = {
-                            permissionLauncher.launch(allRequiredPermissions)
+                            permissionLauncher.launch(runtimeRequestablePermissions)
                         },
                         modifier = Modifier
                             .fillMaxWidth()
@@ -255,6 +278,40 @@ fun OnboardingScreen(
                         Icon(Icons.Default.Security, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Grant All Platform Permissions", fontWeight = FontWeight.Bold)
+                    }
+
+                    // SMS and Call Log cannot be granted from a dialog on Android 10+. Sending the
+                    // user straight to the settings screen is the only route that works.
+                    if (specialAccessPermissions.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        OutlinedButton(
+                            onClick = {
+                                context.startActivity(
+                                    RestrictedPermissions.settingsIntent(context)
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.LockOpen, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "Enable SMS & Call History",
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Text(
+                            text = "Android only grants these from system settings " +
+                                    "(${RestrictedPermissions.settingsLabel()}). " +
+                                    "Turn them on there to unlock the SMS and Call Logs capabilities.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))

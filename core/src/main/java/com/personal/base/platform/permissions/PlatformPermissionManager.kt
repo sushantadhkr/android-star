@@ -27,14 +27,33 @@ class PlatformPermissionManager(
 
     /**
      * Checks if a single runtime permission is granted.
+     *
+     * SMS and Call Log permissions are special: since Android 10 they are AppOps-managed, so
+     * `checkSelfPermission` always reports them denied even once the user has granted them. Those
+     * are queried through AppOps instead, otherwise a granted permission still looks blocked.
      */
     fun isPermissionGranted(permission: String): Boolean {
+        if (RestrictedPermissions.requiresSpecialAccess(permission)) {
+            return RestrictedPermissions.isGranted(context, permission)
+        }
         return try {
             ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
         } catch (_: Exception) {
             false
         }
     }
+
+    /**
+     * Whether a permission must be granted from system settings rather than a runtime dialog.
+     */
+    fun requiresSpecialAccess(permission: String): Boolean =
+        RestrictedPermissions.requiresSpecialAccess(permission)
+
+    /**
+     * The permissions of a capability that cannot be granted through a runtime dialog.
+     */
+    fun getSpecialAccessPermissions(capability: CapabilityType): List<String> =
+        getPermissionsForCapability(capability).filter { requiresSpecialAccess(it) }
 
     /**
      * Checks if all required permissions for a capability are granted.
