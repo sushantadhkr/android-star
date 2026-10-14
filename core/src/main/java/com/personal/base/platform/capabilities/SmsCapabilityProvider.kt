@@ -9,6 +9,8 @@ import com.personal.base.core.logging.PlatformLogger
 import com.personal.base.platform.permissions.PlatformPermissionManager
 import com.personal.base.platform.permissions.RestrictedPermissions
 
+private const val READ_SMS = android.Manifest.permission.READ_SMS
+
 /**
  * Reading the SMS inbox.
  *
@@ -27,12 +29,12 @@ class SmsCapabilityProvider(
         get() {
             val missing = permissionManager.getMissingPermissions(type)
             return if (missing.isNotEmpty()) {
-                // Say *why* it is blocked. "Denied" on its own is useless to someone who has
-                // already granted everything they could find in settings.
+                // Say where the grant lives. "Denied" on its own is useless to someone who has
+                // already granted everything they can find in settings.
                 CapabilityStatus.PermissionRequired(
                     missing.map { permission ->
-                        val mode = RestrictedPermissions.modeFor(context, permission)
-                        "$permission (app ops: $mode — grant from ${RestrictedPermissions.settingsLabel()})"
+                        "$permission — grant from ${RestrictedPermissions.settingsLabel()}, " +
+                            "which is the only place it can be granted"
                     }
                 )
             } else {
@@ -41,12 +43,32 @@ class SmsCapabilityProvider(
         }
 
     override fun initialize() {
+        // The grant state for SMS cannot be read back on modern Android — RestrictedPermissions
+        // sets out why every query fails — so the only honest check is to try the read itself.
+        // A probe that actually works is the only kind of check that cannot lie.
+        permissionManager.registerProbe(READ_SMS) { canReadInbox() }
+
         logger.i("SmsProvider", "SMS capability provider initialized. Status=$status")
     }
 
     override fun release() {}
 
     private fun inbox(): Uri = Uri.parse("content://sms/inbox")
+
+    /**
+     * Whether the inbox can be read, decided by reading it.
+     *
+     * Asks for a single row so the check is as cheap as the operation it is checking.
+     */
+    private fun canReadInbox(): Boolean = try {
+        context.contentResolver
+            .query(inbox(), arrayOf("_id"), null, null, "date DESC LIMIT 1")
+            ?.use { true } != null
+    } catch (e: SecurityException) {
+        false
+    } catch (e: Exception) {
+        false
+    }
 
     fun getSmsCount(): Int = list(limit = 1).let { countOf(it) }
 
@@ -57,7 +79,7 @@ class SmsCapabilityProvider(
      * the difference matters enormously when deciding whether a phone has messages.
      */
     fun list(limit: Int = 20, search: String? = null): List<SmsMessage>? {
-        if (!permissionManager.isPermissionGranted(android.Manifest.permission.READ_SMS)) return null
+        if (!permissionManager.isPermissionGranted(READ_SMS)) return null
 
         return try {
             context.contentResolver.query(
@@ -115,7 +137,7 @@ class SmsCapabilityProvider(
 
     /** How many messages the inbox holds, or null when the count could not be taken. */
     fun count(): Int? {
-        if (!permissionManager.isPermissionGranted(android.Manifest.permission.READ_SMS)) return null
+        if (!permissionManager.isPermissionGranted(READ_SMS)) return null
         return try {
             context.contentResolver.query(inbox(), arrayOf("_id"), null, null, null)?.use { it.count }
         } catch (e: Exception) {

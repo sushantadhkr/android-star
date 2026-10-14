@@ -9,6 +9,9 @@ import com.personal.base.core.logging.PlatformLogger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.util.concurrent.ConcurrentHashMap
+
+private const val VERDICT_TTL_MS = 30_000L
 
 /**
  * Centralized manager for querying and evaluating system permissions across Android versions.
@@ -21,6 +24,30 @@ class PlatformPermissionManager(
     private val _permissionsState = MutableStateFlow<Map<String, Boolean>>(emptyMap())
     val permissionsState: StateFlow<Map<String, Boolean>> = _permissionsState.asStateFlow()
 
+    /**
+     * How a permission that cannot be inspected is proven instead.
+     *
+     * SMS and Call history are granted through a screen the app cannot reach, and their state
+     * cannot be read back — [RestrictedPermissions] explains why every obvious way fails. A
+     * provider that needs one registers a probe that performs the operation and reports whether it
+     * worked. That is the only answer that cannot be a lie.
+     */
+    private val probes = ConcurrentHashMap<String, () -> Boolean>()
+
+    private val verdicts = ConcurrentHashMap<String, Pair<Boolean, Long>>()
+
+    /**
+     * Registers how to demonstrate that a permission is really granted.
+     *
+     * The verdict is cached briefly, because a probe does real I/O and the capability catalogue
+     * asks about the same permission repeatedly while a screen is open.
+     */
+    fun registerProbe(permission: String, probe: () -> Boolean) {
+        probes[permission] = probe
+        verdicts.remove(permission)
+        logger.d("PermissionManager", "Registered a probe for $permission")
+    }
+
     init {
         refreshPermissions()
     }
@@ -28,19 +55,39 @@ class PlatformPermissionManager(
     /**
      * Checks if a single runtime permission is granted.
      *
-     * SMS and Call Log permissions are special: since Android 10 they are AppOps-managed, so
-     * `checkSelfPermission` always reports them denied even once the user has granted them. Those
-     * are queried through AppOps instead, otherwise a granted permission still looks blocked.
+     * Ordinary permissions answer themselves. SMS and Call history cannot be read back, so they are
+     * answered by a registered [probe]. With no probe, they are reported as not granted — assuming
+     * a permission that cannot be verified is exactly how a capability claims to work and does not.
      */
     fun isPermissionGranted(permission: String): Boolean {
-        if (RestrictedPermissions.requiresSpecialAccess(permission)) {
-            return RestrictedPermissions.isGranted(context, permission)
+        probes[permission]?.let { return cachedVerdict(permission, it) }
+
+        if (RestrictedPermissions.isAppOpsManaged(permission)) {
+            logger.d(
+                "PermissionManager",
+                "$permission cannot be read back and has no probe; reporting it as not granted"
+            )
+            return false
         }
+
         return try {
             ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
         } catch (_: Exception) {
             false
         }
+    }
+
+    private fun cachedVerdict(permission: String, probe: () -> Boolean): Boolean {
+        val now = System.currentTimeMillis()
+        val cached = verdicts[permission]
+        if (cached != null && now - cached.second < VERDICT_TTL_MS) return cached.first
+
+        val granted = runCatching { probe() }.getOrElse {
+            logger.w("PermissionManager", "Probe for $permission threw: ${it.message}")
+            false
+        }
+        verdicts[permission] = granted to now
+        return granted
     }
 
     /**

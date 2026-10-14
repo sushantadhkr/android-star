@@ -391,9 +391,19 @@ Regenerate the fixture with `./gradlew :core:testDebugUnitTest --tests '*DocsFix
 
 ### SMS and Call history
 
-These cannot be granted from a runtime dialog. On Android 10+ they live behind
-**Settings → Apps → Special app access → SMS and Call history**, and are checked through AppOps
-rather than `checkSelfPermission` — which reports them as denied even when they are granted.
+These cannot be granted from a runtime dialog, and — as measured on a real Android 16 device —
+**their grant state cannot be read back either**. Every obvious way fails:
+
+- `AppOpsManager.unsafeCheckOpNoThrow("READ_SMS", …)` throws
+  `IllegalArgumentException: Unknown operation string: READ_SMS`; these operations have left the
+  public table.
+- `AppOpsManager.strToOp` is hidden and absent, so there is no int fallback to reach.
+- `checkSelfPermission` is not merely conservative but **wrong** — `READ_CALL_LOG` reports granted
+  while reading the call log still throws `SecurityException`.
+
+So the platform does not ask whether SMS is granted. It **tries**: a provider registers a probe that
+performs the real operation and reports whether it worked. That is the only answer that cannot be a
+lie, and it means a granted permission finally reads as granted.
 
 ```bash
 -d '{"capability":"SMS","action":"list","limit":3}'
@@ -404,6 +414,9 @@ rather than `checkSelfPermission` — which reports them as denied even when the
 A refused read answers `403` naming the screen where the grant lives, never an empty result — an
 empty inbox and a blocked inbox look identical otherwise, and that difference is how a phone
 quietly stops reporting its messages.
+
+Grant it from **Settings → Apps → Special app access → SMS and Call history**. Nothing else can,
+including `adb`: the uid-level mode the provider reads is not writable from a shell.
 
 ### The gate is authoritative
 

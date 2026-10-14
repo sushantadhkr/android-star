@@ -16,20 +16,29 @@ import org.junit.Test
 class RestrictedPermissionsTest {
 
     @Test
-    fun `SMS and call log permissions are recognised as AppOps managed`() {
+    fun `SMS and call log permissions are recognised as unverifiable`() {
         listOf(
             "android.permission.READ_SMS",
             "android.permission.RECEIVE_SMS",
             "android.permission.SEND_SMS",
-            "android.permission.RECEIVE_WAP_PUSH",
-            "android.permission.RECEIVE_MMS",
-            "android.permission.READ_CELL_BROADCASTS",
             "android.permission.READ_CALL_LOG",
             "android.permission.WRITE_CALL_LOG",
-            "android.permission.PROCESS_OUTGOING_CALLS",
         ).forEach {
             assertTrue("$it should be AppOps managed", RestrictedPermissions.isAppOpsManaged(it))
         }
+    }
+
+    @Test
+    fun `the platform no longer pretends it can read these permissions`() {
+        // Measured on Android 16: unsafeCheckOpNoThrow throws "Unknown operation string", strToOp
+        // is absent, and checkSelfPermission says denied even when granted. There is no query left,
+        // so only a probe can answer — and RestrictedPermissions must not claim otherwise.
+        assertTrue(
+            "there must be no query-based verifier to call",
+            RestrictedPermissions::class.java.methods.none {
+                it.name == "isGranted" && it.parameterCount == 2
+            }
+        )
     }
 
     @Test

@@ -1,11 +1,9 @@
 package com.personal.base.platform.permissions
 
-import android.app.AppOpsManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
-import android.os.Process
 import android.provider.Settings
 
 /**
@@ -17,42 +15,42 @@ import android.provider.Settings
 private const val ACTION_MANAGE_APP_OPS = "android.settings.MANAGE_APP_OPS_SETTINGS"
 
 /**
- * Permissions the runtime dialog cannot grant.
+ * Permissions the runtime dialog cannot grant, and which the public API cannot verify either.
  *
- * Since Android 10 the SMS and Call Log groups are *hard restricted*: calling
- * `requestPermissions()` with them returns denied immediately, without ever showing a dialog. They
- * are instead controlled through AppOps and granted from
- * **Settings → Apps → Special app access → SMS and Call history**.
+ * Since Android 10 the SMS and Call Log groups are *hard restricted*. Calling `requestPermissions()`
+ * with them returns denied immediately without ever showing a dialog; they are granted from
+ * **Settings → Apps → Special app access → SMS and Call history**, and the decision is recorded as
+ * a uid-level AppOps mode.
  *
- * Treating them like ordinary runtime permissions makes the request look like a silent denial, so
- * the platform must recognise them and route the user to the settings screen instead.
+ * That mode cannot be read from an app:
+ *
+ *  - `AppOpsManager.unsafeCheckOpNoThrow(String, …)` throws
+ *    `IllegalArgumentException: Unknown operation string: READ_SMS` on Android 16, because these
+ *    operations are not in the public table;
+ *  - `AppOpsManager.strToOp` is hidden and absent, so there is no int fallback to reach;
+ *  - `checkSelfPermission` reports these as denied even after they are granted.
+ *
+ * Measured on a real Android 16 device rather than assumed — the third point was the reason this
+ * used to consult AppOps, and it is still true, but the first two mean AppOps can no longer answer
+ * the question either.
+ *
+ * So the only honest answer is to **try the operation**. [com.personal.base.platform.permissions.PlatformPermissionManager]
+ * takes a probe for exactly this: a provider that does the thing and says whether it worked.
  */
 object RestrictedPermissions {
 
     /**
-     * Maps a permission to its AppOps operation name.
-     *
-     * AppOps names operations after the permission with the prefix stripped — `READ_SMS` for
-     * `android.permission.READ_SMS`, `SEND_SMS` for `android.permission.SEND_SMS`. There is no
-     * `WRITE_SMS` operation, and an unknown operation name resolves to MODE_ERROR rather than
-     * raising, so a wrong name here makes the permission look permanently denied no matter what the
-     * user answers. That failure is invisible until someone tries to use the capability, so the
-     * mapping is written out in full instead of derived from the permission string.
+     * Permissions whose real grant state cannot be read, only demonstrated.
      */
-    private fun appOpName(permission: String): String? = when (permission) {
-        "android.permission.READ_SMS" -> "READ_SMS"
-        "android.permission.RECEIVE_SMS" -> "RECEIVE_SMS"
-        "android.permission.SEND_SMS" -> "SEND_SMS"
-        "android.permission.RECEIVE_WAP_PUSH" -> "RECEIVE_WAP_PUSH"
-        "android.permission.RECEIVE_MMS" -> "RECEIVE_MMS"
-        "android.permission.READ_CELL_BROADCASTS" -> "READ_CELL_BROADCASTS"
-        "android.permission.READ_CALL_LOG" -> "READ_CALL_LOG"
-        "android.permission.WRITE_CALL_LOG" -> "WRITE_CALL_LOG"
-        "android.permission.PROCESS_OUTGOING_CALLS" -> "PROCESS_OUTGOING_CALLS"
-        else -> null
-    }
+    val UNVERIFIABLE = setOf(
+        "android.permission.READ_SMS",
+        "android.permission.RECEIVE_SMS",
+        "android.permission.SEND_SMS",
+        "android.permission.READ_CALL_LOG",
+        "android.permission.WRITE_CALL_LOG"
+    )
 
-    fun isAppOpsManaged(permission: String): Boolean = appOpName(permission) != null
+    fun isAppOpsManaged(permission: String): Boolean = permission in UNVERIFIABLE
 
     /**
      * Whether this permission needs the special-access settings screen on the current OS version.
@@ -63,52 +61,6 @@ object RestrictedPermissions {
     /** Whether any permission in the list needs the special-access screen. */
     fun requiresSpecialAccess(permissions: List<String>): Boolean =
         permissions.any { requiresSpecialAccess(it) }
-
-    /**
-     * Checks an AppOps-managed permission.
-     *
-     * `checkSelfPermission` reports these as denied even once granted, so the answer has to come
-     * from AppOps.
-     */
-    fun isGranted(context: Context, permission: String): Boolean {
-        val opName = appOpName(permission) ?: return true
-        return mode(context, opName) == AppOpsManager.MODE_ALLOWED
-    }
-
-    /**
-     * The raw AppOps mode behind a permission, for explaining a refusal.
-     *
-     * Returned so the platform can tell the user *why* something is blocked — not granted, denied
-     * outright, or no such operation — instead of only ever saying "denied".
-     */
-    fun modeFor(context: Context, permission: String): String {
-        val opName = appOpName(permission) ?: return "not_app_ops_managed"
-        return when (mode(context, opName)) {
-            AppOpsManager.MODE_ALLOWED -> "allowed"
-            AppOpsManager.MODE_IGNORED -> "denied"
-            AppOpsManager.MODE_ERRORED -> "failed"
-            AppOpsManager.MODE_DEFAULT -> "default"
-            else -> "other"
-        }
-    }
-
-    /**
-     * The raw AppOps mode for an operation.
-     *
-     * The string overload is deprecated from Android 13 but remains the only one in the public SDK —
-     * `AppOpsManager.strToOp` is a hidden API — and it still resolves correctly for these
-     * operations. A MODE_ERROR here means the operation name is unknown to the platform, which is
-     * exactly the mistake this function's callers need to be able to see.
-     */
-    @Suppress("DEPRECATION")
-    private fun mode(context: Context, opName: String): Int = try {
-        val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as? AppOpsManager
-            ?: return AppOpsManager.MODE_ERRORED
-
-        appOps.unsafeCheckOpNoThrow(opName, Process.myUid(), context.packageName)
-    } catch (_: Exception) {
-        AppOpsManager.MODE_ERRORED
-    }
 
     /**
      * An intent to the screen where these permissions are actually granted.
