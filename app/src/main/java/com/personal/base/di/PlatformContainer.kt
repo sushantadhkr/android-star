@@ -6,9 +6,11 @@ import com.personal.base.core.app.AppToggleStore
 import com.personal.base.core.app.DashboardComposer
 import com.personal.base.core.app.DashboardLayoutStore
 import com.personal.base.generated.GeneratedAppRegistry
+import com.personal.base.core.capability.CapabilityActions
 import com.personal.base.core.capability.CapabilityApi
 import com.personal.base.core.capability.CapabilityCatalogue
 import com.personal.base.core.capability.CapabilityGate
+import com.personal.base.core.security.ApiTokenStore
 import com.personal.base.core.capability.PlatformCapabilityRegistry
 import com.personal.base.core.command.CommandValidator
 import com.personal.base.core.config.ConfigRepository
@@ -155,6 +157,16 @@ class PlatformContainer(val context: Context) {
     // Pinned Platform surface: master and per-capability control.
     val capabilityGate = CapabilityGate(context)
     val capabilityCatalogue = CapabilityCatalogue(capabilityRegistry, capabilityGate)
+    val apiTokenStore = ApiTokenStore(context)
+    val capabilityActions = CapabilityActions(capabilityRegistry, logger)
+    val capabilityApi = CapabilityApi(
+        registry = capabilityRegistry,
+        gate = capabilityGate,
+        catalogue = capabilityCatalogue,
+        tokenStore = apiTokenStore,
+        actions = capabilityActions,
+        logger = logger
+    )
     val commandValidator = CommandValidator(configRepository, logger)
 
     // 4. Platform Facade
@@ -214,7 +226,12 @@ class PlatformContainer(val context: Context) {
 
     // 7. B. Core Platform Capabilities (33 components)
     val eventBus = EventBus(logger)
-    val embeddedServer = EmbeddedServer(logger)
+    val embeddedServer = EmbeddedServer(
+        logger = logger,
+        // The server can post notifications, run hardware and change what the platform may do, so
+        // every request must present the token. Enforced here so no route can ship unauthenticated.
+        authorizer = capabilityApi::authorize
+    )
     val authentication = Authentication(logger)
     val authorization = Authorization(logger)
     val tlsCertManager = TlsCertManager(logger)
@@ -266,7 +283,7 @@ class PlatformContainer(val context: Context) {
 
         // The platform's network surface. Routes are registered eagerly but the socket is only
         // opened by the always-on host, so nothing is reachable while that host is stopped.
-        CapabilityApi.register(embeddedServer, capabilityCatalogue)
+        capabilityApi.register(embeddedServer)
 
         // Register every declared App. The registry is generated at build time from
         // @PlatformAppDefinition, so this line never changes when Apps are added or removed.

@@ -80,6 +80,12 @@ fun SettingsScreen(
     ) {
         // The shell's app bar already names this page, so it does not repeat the title here.
 
+        // The token that guards the HTTP surface. Shown so it can be shared, and rotatable so it can be
+        // replaced if it ever leaks.
+        ApiTokenCard(container.apiTokenStore)
+
+        Spacer(modifier = Modifier.height(8.dp))
+
         // Capabilities are reached from here — a pinned Platform surface, not a top-level page.
         OutlinedButton(
             onClick = onOpenCapabilities,

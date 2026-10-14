@@ -22,8 +22,18 @@ import java.util.concurrent.ConcurrentHashMap
 data class ServerRequest(
     val method: String,
     val path: String,
-    val body: String
-)
+    val body: String,
+    val headers: Map<String, String> = emptyMap()
+) {
+    /** The bearer token presented by the caller, if any. */
+    fun bearerToken(): String? =
+        headers.entries
+            .firstOrNull { it.key.equals("authorization", ignoreCase = true) }
+            ?.value
+            ?.takeIf { it.startsWith("Bearer ", ignoreCase = true) }
+            ?.substring(7)
+            ?.trim()
+}
 
 /**
  * What a route handler returns.
@@ -54,10 +64,15 @@ private typealias RouteHandler = (ServerRequest) -> ServerResponse
  * The platform runs one instance and Apps register routes onto it, so there is a single server and a
  * single port no matter how many Apps are installed. Routes may be removed again, which is how a
  * stopped App stops answering.
+ *
+ * When an [authorizer] is supplied, every request must present a valid bearer token. Enforcement
+ * lives here rather than in individual routes so a newly added route cannot accidentally ship
+ * unauthenticated.
  */
 class EmbeddedServer(
     private val logger: PlatformLogger,
-    val port: Int = DEFAULT_PORT
+    val port: Int = DEFAULT_PORT,
+    private val authorizer: ((ServerRequest) -> ServerResponse?)? = null
 ) {
 
     private val scope = CoroutineScope(Dispatchers.IO + Job())
@@ -127,10 +142,17 @@ class EmbeddedServer(
                 val path = rawPath.substringBefore('?')
 
                 var contentLength = 0
+                val headers = HashMap<String, String>()
                 var line = reader.readLine()
                 while (!line.isNullOrEmpty()) {
-                    if (line.lowercase().startsWith("content-length:")) {
-                        contentLength = line.substringAfter(":").trim().toIntOrNull() ?: 0
+                    val colon = line.indexOf(':')
+                    if (colon > 0) {
+                        val name = line.substring(0, colon).trim()
+                        val value = line.substring(colon + 1).trim()
+                        headers[name] = value
+                        if (name.equals("content-length", ignoreCase = true)) {
+                            contentLength = value.toIntOrNull() ?: 0
+                        }
                     }
                     line = reader.readLine()
                 }
@@ -139,7 +161,12 @@ class EmbeddedServer(
                     CharArray(contentLength).also { reader.read(it, 0, contentLength) }.concatToString()
                 } else ""
 
-                val response = routeHandlers[path]?.invoke(ServerRequest(method, path, body))
+                val request = ServerRequest(method, path, body, headers)
+
+                // Authorisation is enforced before routing, so no route can ship unauthenticated.
+                val denied = authorizer?.invoke(request)
+                val response = denied
+                    ?: routeHandlers[path]?.invoke(request)
                     ?: ServerResponse(404, "application/json", """{"error":"Not Found"}""")
 
                 val bytes = response.body.toByteArray()

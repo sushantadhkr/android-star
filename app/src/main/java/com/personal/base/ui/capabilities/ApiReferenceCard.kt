@@ -36,9 +36,10 @@ import com.personal.base.core.platform.EmbeddedServer
  * from "what can this do" to "how do I drive it" without leaving the page.
  */
 @Composable
-fun ApiReferenceCard() {
+fun ApiReferenceCard(tokenStore: com.personal.base.core.security.ApiTokenStore) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     val port = remember { EmbeddedServer.DEFAULT_PORT }
+    val token = remember { tokenStore.token() }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -81,11 +82,15 @@ fun ApiReferenceCard() {
 
             if (expanded) {
                 Text(
-                    text = "Reach it from anywhere on your network:",
+                    text = "Every request needs the token from Settings → API access token:",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                CodeBlock("curl http://<phone-ip>:$port/api/capabilities")
+                CodeBlock(
+                    """
+                    curl -H "Authorization: Bearer $token" http://PHONE:$port/api/capabilities
+                    """.trimIndent()
+                )
 
                 Text(
                     text = "Endpoints",
@@ -93,19 +98,71 @@ fun ApiReferenceCard() {
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "GET  /api/capabilities        every capability, with status",
+                    text = "GET  /api/capabilities         every capability, status + actions",
                     style = MaterialTheme.typography.bodySmall,
                     fontFamily = FontFamily.Monospace
                 )
                 Text(
-                    text = "GET  /api/capabilities/status  same payload, status alias",
+                    text = "POST /api/capabilities/invoke  run a capability action",
                     style = MaterialTheme.typography.bodySmall,
                     fontFamily = FontFamily.Monospace
                 )
                 Text(
-                    text = "GET  /api/apps/<id>/<path>   whatever Apps that serve publish",
+                    text = "POST /api/capabilities/toggle  switch one, or all, on and off",
                     style = MaterialTheme.typography.bodySmall,
                     fontFamily = FontFamily.Monospace
+                )
+                Text(
+                    text = "GET  /api/apps/<id>/<path>    whatever Apps that serve publish",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace
+                )
+
+                Text(
+                    text = "Drive a capability",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                CodeBlock(
+                    """
+                    # post a notification
+                    curl -H "Authorization: Bearer $token" -X POST http://PHONE:$port/api/capabilities/invoke \\
+                      -d '{"capability":"NOTIFICATIONS","action":"post",
+                           "title":"Hello","message":"from curl"}'
+
+                    # vibrate
+                    curl -H "Authorization: Bearer $token" -X POST http://PHONE:$port/api/capabilities/invoke \\
+                      -d '{"capability":"DEVICE_ACTIONS","action":"haptic","durationMs":200}'
+
+                    # read sensors
+                    curl -H "Authorization: Bearer $token" -X POST http://PHONE:$port/api/capabilities/invoke \\
+                      -d '{"capability":"SENSORS","action":"get"}'
+                    """.trimIndent()
+                )
+
+                Text(
+                    text = "Switch a capability off",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                CodeBlock(
+                    """
+                    # off: the API refuses to touch it, 403
+                    curl -H "Authorization: Bearer $token" -X POST http://PHONE:$port/api/capabilities/toggle \\
+                      -d '{"capability":"CAMERA","enabled":false}'
+
+                    # master switch, everything at once
+                    curl -H "Authorization: Bearer $token" -X POST http://PHONE:$port/api/capabilities/toggle \\
+                      -d '{"enabled":false}'
+                    """.trimIndent()
+                )
+
+                Text(
+                    text = "A capability you switch off is never invoked — the gate is checked " +
+                            "before the action runs, so the API returns 403 rather than quietly " +
+                            "doing nothing. Disabled capabilities stay listed in the catalogue.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 Text(
@@ -116,8 +173,7 @@ fun ApiReferenceCard() {
                 Text(
                     text = "The server only listens while the always-on host is running " +
                             "(Settings → Always-on Platform Host). Stop it and the phone becomes " +
-                            "unreachable. A stopped App answers 503 on its own endpoints, so a " +
-                            "toggle always takes effect immediately.",
+                            "unreachable. A stopped App answers 503 on its own endpoints.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -160,7 +216,7 @@ fun ApiReferenceCard() {
                     """.trimIndent()
                 )
 
-                Row(verticalAlignment = Alignment.Top) {
+Row(verticalAlignment = Alignment.Top) {
                     Icon(
                         Icons.Default.Info,
                         contentDescription = null,
@@ -168,8 +224,9 @@ fun ApiReferenceCard() {
                         modifier = Modifier.width(16.dp)
                     )
                     Text(
-                        text = "The server has no authentication. Treat it as a development " +
-                                "surface and keep it off untrusted networks.",
+                        text = "The token is the only thing protecting this surface. If it leaks, " +
+                                "rotate it in Settings — the old one stops working immediately. " +
+                                "Keep it off untrusted networks.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(start = 6.dp)
