@@ -58,6 +58,9 @@ dependencies {
   // Capabilities reach background work
   implementation(libs.androidx.work.runtime.ktx)
 
+  // Real QR and barcode encode/decode
+  implementation(libs.zxing.core)
+
   // Local tests
   testImplementation(libs.junit)
   testImplementation(libs.kotlinx.coroutines.test)

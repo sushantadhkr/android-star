@@ -5,7 +5,7 @@
     "kind": "Directory"
   },
   "applicationId": "com.personal.base.apps",
-  "variantName": "release",
+  "variantName": "debug",
   "elements": [
     {
       "type": "SINGLE",

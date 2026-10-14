@@ -15,8 +15,10 @@ nav3Core = "1.0.1"
 lifecycleViewmodelNav3 = "2.10.0"
 kotlinxSerialization = "1.8.0"
 androidxWork = "2.10.0"
+zxing = "3.5.3"
 
 [libraries]
+zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
 androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "androidxWork" }
 androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }

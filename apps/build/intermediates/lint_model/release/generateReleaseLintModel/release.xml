@@ -25,6 +25,6 @@
       type="MAIN"
       applicationId="com.personal.base.apps"
       generatedSourceFolders="build/generated/ap_generated_sources/release/out"
-      desugaredMethodsFiles="/Users/sushantadhikari/.gradle/caches/9.1.0/transforms/76c9e90dae61f1a0253f3ad310394a16/transformed/D8BackportedDesugaredMethods.txt">
+      desugaredMethodsFiles="/Users/sushantadhikari/.gradle/caches/9.1.0/transforms/4fb3cf1ff12b543543f52ebcea957269/transformed/D8BackportedDesugaredMethods.txt">
   </artifact>
 </variant>

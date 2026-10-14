@@ -6,6 +6,14 @@ import com.personal.base.platform.capabilities.BatteryPowerCapabilityProvider
 import com.personal.base.platform.capabilities.CameraMicCapabilityProvider
 import com.personal.base.platform.capabilities.ClipboardCapabilityProvider
 import com.personal.base.platform.capabilities.ConnectivityCapabilityProvider
+import com.personal.base.platform.capabilities.DisplayCapabilityProvider
+import com.personal.base.platform.capabilities.FlashlightCapabilityProvider
+import com.personal.base.platform.capabilities.InstalledAppsCapabilityProvider
+import com.personal.base.platform.capabilities.MediaLibraryCapabilityProvider
+import com.personal.base.platform.capabilities.QrBarcodeCapabilityProvider
+import com.personal.base.platform.capabilities.ScreenCaptureCapabilityProvider
+import com.personal.base.platform.capabilities.SystemSettingsCapabilityProvider
+import com.personal.base.platform.capabilities.TextToSpeechCapabilityProvider
 import com.personal.base.platform.capabilities.DeviceActionCapabilityProvider
 import com.personal.base.platform.capabilities.DeviceInfoCapabilityProvider
 import com.personal.base.platform.capabilities.NetworkUsageCapabilityProvider
@@ -14,6 +22,7 @@ import com.personal.base.platform.capabilities.SensorsCapabilityProvider
 import com.personal.base.platform.capabilities.WifiCapabilityProvider
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -44,6 +53,14 @@ class CapabilityActions(
             CapabilityType.BATTERY_POWER -> battery(action)
             CapabilityType.CAMERA -> camera(action, payload)
             CapabilityType.MICROPHONE -> microphone(action, payload)
+            CapabilityType.QR_BARCODE -> qrBarcode(action, payload)
+            CapabilityType.SCREEN_CAPTURE -> screenCapture(action)
+            CapabilityType.TEXT_TO_SPEECH -> textToSpeech(action, payload)
+            CapabilityType.INSTALLED_APPS -> installedApps(action, payload)
+            CapabilityType.SYSTEM_SETTINGS -> systemSettings(action, payload)
+            CapabilityType.FLASHLIGHT -> flashlight(action, payload)
+            CapabilityType.DISPLAY -> display()
+            CapabilityType.MEDIA_LIBRARY -> mediaLibrary(action, payload)
             CapabilityType.DEVICE_INFO -> deviceInfo()
             CapabilityType.SENSORS -> sensors()
             CapabilityType.CONNECTIVITY -> connectivity()
@@ -217,6 +234,177 @@ class CapabilityActions(
         }
     }
 
+    private fun qrBarcode(action: String, payload: JsonObject): ServerResponse {
+        val provider = provider<QrBarcodeCapabilityProvider>(CapabilityType.QR_BARCODE)
+            ?: return unsupported(CapabilityType.QR_BARCODE)
+        return when (action.lowercase()) {
+            "generate", "encode" -> {
+                val content = payload.string("content")
+                    ?: return badRequest("Missing 'content'")
+                val file = provider.generateToFile(content)
+                    ?: return ServerResponse(500, "application/json", """{"error":"Encode failed"}""")
+                ServerResponse.json(buildJsonObject { put("file", file.absolutePath) }.toString())
+            }
+            "decode", "read" -> {
+                val path = payload.string("file") ?: return badRequest("Missing 'file'")
+                val file = java.io.File(path)
+                if (!file.exists()) return badRequest("No such file: $path")
+                val text = provider.decodeFile(file)
+                    ?: return ServerResponse(
+                        422, "application/json",
+                        """{"error":"No barcode found in that image"}"""
+                    )
+                ServerResponse.json(buildJsonObject { put("content", text) }.toString())
+            }
+            else -> unknownAction(action, listOf("generate", "decode"))
+        }
+    }
+
+    private fun screenCapture(action: String): ServerResponse {
+        val provider = provider<ScreenCaptureCapabilityProvider>(CapabilityType.SCREEN_CAPTURE)
+            ?: return unsupported(CapabilityType.SCREEN_CAPTURE)
+        if (!action.equals("state", ignoreCase = true)) {
+            return unknownAction(action, listOf("state"))
+        }
+        return ServerResponse.json(
+            buildJsonObject {
+                put("capturing", provider.isCapturing.value)
+                put(
+                    "note",
+                    "Screen capture needs one-time user consent, granted in the app UI. " +
+                        "Once granted, capture runs from there."
+                )
+            }.toString()
+        )
+    }
+
+    private fun textToSpeech(action: String, payload: JsonObject): ServerResponse {
+        val provider = provider<TextToSpeechCapabilityProvider>(CapabilityType.TEXT_TO_SPEECH)
+            ?: return unsupported(CapabilityType.TEXT_TO_SPEECH)
+        return when (action.lowercase()) {
+            "speak" -> {
+                val text = payload.string("text") ?: return badRequest("Missing 'text'")
+                provider.speak(text)
+                ServerResponse.json("""{"speaking":true}""")
+            }
+            "stop" -> {
+                provider.stop()
+                ServerResponse.json("""{"stopped":true}""")
+            }
+            else -> unknownAction(action, listOf("speak", "stop"))
+        }
+    }
+
+    private fun installedApps(action: String, payload: JsonObject): ServerResponse {
+        val provider = provider<InstalledAppsCapabilityProvider>(CapabilityType.INSTALLED_APPS)
+            ?: return unsupported(CapabilityType.INSTALLED_APPS)
+        return when (action.lowercase()) {
+            "list", "get" -> {
+                val includeSystem = payload.boolean("includeSystem") ?: false
+                val apps = provider.getInstalledApps(includeSystem)
+                ServerResponse.json(
+                    buildJsonObject {
+                        put("count", apps.size)
+                        put(
+                            "apps",
+                            buildJsonArray {
+                                apps.take(200).forEach { app ->
+                                    add(
+                                        buildJsonObject {
+                                            put("packageName", app.packageName)
+                                            put("appName", app.appName)
+                                            put("isSystem", app.isSystemApp)
+                                            put("version", app.versionName)
+                                        }
+                                    )
+                                }
+                            }
+                        )
+                    }.toString()
+                )
+            }
+            "launch" -> {
+                val pkg = payload.string("packageName") ?: return badRequest("Missing 'packageName'")
+                val ok = provider.launchApp(pkg)
+                ServerResponse.json(buildJsonObject { put("launched", ok) }.toString())
+            }
+            else -> unknownAction(action, listOf("list", "launch"))
+        }
+    }
+
+    private fun systemSettings(action: String, payload: JsonObject): ServerResponse {
+        val provider = provider<SystemSettingsCapabilityProvider>(CapabilityType.SYSTEM_SETTINGS)
+            ?: return unsupported(CapabilityType.SYSTEM_SETTINGS)
+        val key = payload.string("key") ?: return badRequest("Missing 'key'")
+        return when (action.lowercase()) {
+            "get" -> ServerResponse.json(
+                buildJsonObject { put("value", provider.getSystemSetting(key) ?: "") }.toString()
+            )
+            "getsecure" -> ServerResponse.json(
+                buildJsonObject { put("value", provider.getSecureSetting(key) ?: "") }.toString()
+            )
+            else -> unknownAction(action, listOf("get", "getsecure"))
+        }
+    }
+
+    private fun flashlight(action: String, payload: JsonObject): ServerResponse {
+        val provider = provider<FlashlightCapabilityProvider>(CapabilityType.FLASHLIGHT)
+            ?: return unsupported(CapabilityType.FLASHLIGHT)
+        return when (action.lowercase()) {
+            "on" -> ServerResponse.json(buildJsonObject { put("on", provider.setTorch(true)) }.toString())
+            "off" -> ServerResponse.json(buildJsonObject { put("on", provider.setTorch(false)) }.toString())
+            "toggle" -> ServerResponse.json(buildJsonObject { put("on", provider.toggleTorch()) }.toString())
+            "state" -> ServerResponse.json(
+                buildJsonObject { put("on", provider.isTorchOn.value) }.toString()
+            )
+            else -> unknownAction(action, listOf("on", "off", "toggle", "state"))
+        }
+    }
+
+    private fun display(): ServerResponse {
+        val provider = provider<DisplayCapabilityProvider>(CapabilityType.DISPLAY)
+            ?: return unsupported(CapabilityType.DISPLAY)
+        val d = provider.getDisplayInfo()
+        return ServerResponse.json(
+            buildJsonObject {
+                put("brightnessPercent", d.brightnessPercent)
+                put("isAutoBrightness", d.isAutoBrightness)
+                put("displayState", d.displayState)
+                put("refreshRateHz", d.refreshRateHz)
+            }.toString()
+        )
+    }
+
+    private fun mediaLibrary(action: String, payload: JsonObject): ServerResponse {
+        val provider = provider<MediaLibraryCapabilityProvider>(CapabilityType.MEDIA_LIBRARY)
+            ?: return unsupported(CapabilityType.MEDIA_LIBRARY)
+        if (!action.equals("recent", ignoreCase = true) && !action.equals("get", ignoreCase = true)) {
+            return unknownAction(action, listOf("recent"))
+        }
+        val limit = payload.int("limit") ?: 10
+        val items = provider.getRecentImages(limit)
+        return ServerResponse.json(
+            buildJsonObject {
+                put("count", items.size)
+                put(
+                    "items",
+                    buildJsonArray {
+                        items.forEach { m ->
+                            add(
+                                buildJsonObject {
+                                    put("id", m.id)
+                                    put("title", m.title)
+                                    put("mimeType", m.mimeType)
+                                    put("sizeBytes", m.sizeBytes)
+                                }
+                            )
+                        }
+                    }
+                )
+            }.toString()
+        )
+    }
+
     private fun deviceInfo(): ServerResponse {
         val provider = provider<DeviceInfoCapabilityProvider>(CapabilityType.DEVICE_INFO)
             ?: return unsupported(CapabilityType.DEVICE_INFO)
@@ -348,6 +536,14 @@ class CapabilityActions(
             CapabilityType.BATTERY_POWER -> listOf("state")
             CapabilityType.CAMERA -> listOf("cameras", "capture", "start", "stop")
             CapabilityType.MICROPHONE -> listOf("record")
+            CapabilityType.QR_BARCODE -> listOf("generate", "decode")
+            CapabilityType.SCREEN_CAPTURE -> listOf("state")
+            CapabilityType.TEXT_TO_SPEECH -> listOf("speak", "stop")
+            CapabilityType.INSTALLED_APPS -> listOf("list", "launch")
+            CapabilityType.SYSTEM_SETTINGS -> listOf("get", "getsecure")
+            CapabilityType.FLASHLIGHT -> listOf("on", "off", "toggle", "state")
+            CapabilityType.DISPLAY -> listOf("get")
+            CapabilityType.MEDIA_LIBRARY -> listOf("recent")
             CapabilityType.DEVICE_INFO -> listOf("get")
             CapabilityType.SENSORS -> listOf("get")
             CapabilityType.CONNECTIVITY -> listOf("get")
