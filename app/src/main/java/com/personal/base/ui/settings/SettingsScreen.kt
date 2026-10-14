@@ -120,7 +120,15 @@ fun SettingsScreen(
                         fontWeight = FontWeight.SemiBold
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    section(AppScopeImpl(container.appManager, entry.id, container.platformContext))
+                    section(
+                        AppScopeImpl(
+                            container.appManager,
+                            entry.id,
+                            container.platformContext,
+                            container.notificationChannelManager,
+                            container.logger
+                        )
+                    )
                 }
             }
         }

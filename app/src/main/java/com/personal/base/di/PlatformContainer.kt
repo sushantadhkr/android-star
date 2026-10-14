@@ -170,12 +170,16 @@ class PlatformContainer(val context: Context) {
         logger = logger
     )
     val appToggleStore = AppToggleStore(context)
+
+    // Declared before the App manager: scopes created there post to each App's own channel.
+    val notificationChannelManager = NotificationChannelManager(context, logger)
     val dashboardLayoutStore = DashboardLayoutStore(context)
     val dashboardComposer = DashboardComposer(dashboardLayoutStore)
     val appManager = AppManager(
         platformContext = platformContext,
         toggleStore = appToggleStore,
-        logger = logger
+        logger = logger,
+        channelManager = notificationChannelManager
     )
 
     // 6. C. Runtime and Infrastructure (32 components)
@@ -188,7 +192,6 @@ class PlatformContainer(val context: Context) {
     val serviceWatchdog = ServiceWatchdog(logger)
     val pushMessaging = PushMessaging(logger)
     val otaUpdater = OtaUpdater(context, logger)
-    val notificationChannelManager = NotificationChannelManager(context, logger)
     val serviceTypeManager = ServiceTypeManager(logger)
     val exactScheduler = ExactScheduler(context, logger)
     val metricsHealthEndpoint = MetricsHealthEndpoint(context, logger)

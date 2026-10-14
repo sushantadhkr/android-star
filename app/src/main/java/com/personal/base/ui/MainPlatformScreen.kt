@@ -125,7 +125,13 @@ fun MainPlatformScreen(
     // 3. Full-Screen App Renderer (when a running App is launched)
     if (activeApp != null) {
         activeApp!!.AppContent(
-            scope = AppScopeImpl(container.appManager, activeApp!!.id, container.platformContext),
+            scope = AppScopeImpl(
+                container.appManager,
+                activeApp!!.id,
+                container.platformContext,
+                container.notificationChannelManager,
+                container.logger
+            ),
             onBack = { container.appManager.closeActiveApp() }
         )
         return

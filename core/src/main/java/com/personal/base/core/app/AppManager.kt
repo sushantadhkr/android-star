@@ -23,7 +23,12 @@ import java.util.concurrent.ConcurrentHashMap
 class AppManager(
     private val platformContext: PlatformContext,
     private val toggleStore: AppToggleStoreContract,
-    private val logger: PlatformLogger
+    private val logger: PlatformLogger,
+    /**
+     * Optional so lifecycle rules stay testable without Android. When supplied, scopes created here
+     * post to the App's own notification channel, which is what makes per-App muting work.
+     */
+    private val channelManager: com.personal.base.core.runtime.NotificationChannelManager? = null
 ) {
 
     private val registrations = LinkedHashMap<String, AppRegistration>()
@@ -95,6 +100,16 @@ class AppManager(
 
     /** The live instance, or null when the App is switched off. */
     fun instanceOf(appId: String): PlatformApp? = instances[appId]
+
+    /**
+     * A scope for the App, usable from anywhere the manager is reachable.
+     *
+     * This is how an App posts notifications from `onInitialize`, where no scope has been handed
+     * to it yet. It resolves the same live instance the card and the full screen resolve, so there
+     * is still exactly one instance per App.
+     */
+    fun appScope(appId: String): AppScope =
+        AppScopeImpl(this, appId, platformContext, channelManager, logger)
 
     fun isEnabled(appId: String): Boolean = toggleStore.isEnabled(appId)
 

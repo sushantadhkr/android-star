@@ -254,13 +254,19 @@ class NotificationChannelManager(
         )
     }
 
-    private fun appChannelId(appId: String) = "app_$appId"
-
     companion object {
         const val PLATFORM_APP_ID = "core_platform"
 
         const val CHANNEL_FOREGROUND = "star_foreground_service"
         const val CHANNEL_SECURITY = "star_security_alerts"
         const val CHANNEL_AUTOMATION = "star_automations"
+
+        /**
+         * The channel belonging to an App.
+         *
+         * Namespaced so an App channel can never collide with a platform channel, and derived only
+         * from the App id so it stays stable across restarts.
+         */
+        fun appChannelId(appId: String): String = "app_$appId"
     }
 }

@@ -84,10 +84,21 @@ class NotificationCapabilityProvider(
         }
     }
 
+    /**
+     * Posts a notification.
+     *
+     * [channelId] selects the destination. Platform callers leave it unset and land on a platform
+     * channel. An App passes its own channel so its notifications stay under the Apps group, where
+     * the user can silence that App without affecting the platform.
+     *
+     * The channel must already exist or Android drops the notification, so callers posting to an
+     * App channel must create it first.
+     */
     fun postNotification(
         title: String,
         message: String,
         priorityHigh: Boolean = false,
+        channelId: String = if (priorityHigh) CHANNEL_HIGH_PRIORITY else CHANNEL_INFO,
         notificationId: Int = (System.currentTimeMillis() % 100000).toInt()
     ) {
         if (!status.isUsable) {
@@ -95,7 +106,6 @@ class NotificationCapabilityProvider(
             return
         }
 
-        val channelId = if (priorityHigh) CHANNEL_HIGH_PRIORITY else CHANNEL_INFO
         // Resolve the launcher activity rather than referencing a specific Activity class,
         // so this capability stays independent of the shell and any consuming app.
         val launchIntent = context.packageManager

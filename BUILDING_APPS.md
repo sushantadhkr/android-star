@@ -150,10 +150,24 @@ BackHandler { container.appManager.closeActiveApp() }
 
 ## 9. Notifications
 
-- The platform gives your App **its own channel** automatically, under the **Apps** group.
-- Do not create channels yourself, and do not touch platform channels.
-- The user can silence your App independently — that never affects the platform or other Apps.
-- Post through `context.postNotification(...)`.
+Post through the **App scope**, not `context`:
+
+```kotlin
+// in a card or your screen
+scope.postNotification("Webcam", "Streaming started")
+
+// from onInitialize you hold a PlatformContext, so ask the manager:
+container.appManager.appScope(appId).postNotification("Ready", "Client connected")
+```
+
+`scope.postNotification` targets **your App's own channel**, creating it on first use. That is what
+makes the per-App mute control in Settings work.
+
+- `context.postNotification(...)` posts to a **platform** channel — platform-internal only. An App
+  using it will land in the platform's group and cannot be silenced per App.
+- Never create channels yourself.
+- Never touch a platform channel id.
+- The user silencing your App never affects the platform or any other App.
 
 ## 10. Serving a capability over the network
 

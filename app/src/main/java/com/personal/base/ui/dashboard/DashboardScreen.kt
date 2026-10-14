@@ -168,7 +168,15 @@ private fun DashboardRow(
                         Spacer(Modifier.height(4.dp))
                         val content = item.content
                         if (enabled && content != null) {
-                            content(AppScopeImpl(container.appManager, item.appId, container.platformContext))
+                            content(
+                                AppScopeImpl(
+                                    container.appManager,
+                                    item.appId,
+                                    container.platformContext,
+                                    container.notificationChannelManager,
+                                    container.logger
+                                )
+                            )
                         } else {
                             StoppedNotice()
                         }

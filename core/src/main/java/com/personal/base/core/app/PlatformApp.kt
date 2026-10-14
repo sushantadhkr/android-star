@@ -52,6 +52,17 @@ interface AppScope {
 
     /** Switch the App on or off. Off means: torn down, no instance, state cleared. */
     fun setEnabled(enabled: Boolean)
+
+    /**
+     * Posts a notification to this App's own channel.
+     *
+     * An App must use this rather than `context.postNotification`, which targets a platform
+     * channel. Posting to the App channel is what makes the per-App mute control in Settings work;
+     * a notification sent to a platform channel cannot be silenced per App.
+     *
+     * The channel is created on first use, so no setup is required.
+     */
+    fun postNotification(title: String, message: String, priorityHigh: Boolean = false)
 }
 
 /**
