@@ -62,17 +62,13 @@ fun DashboardScreen(
 
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Dashboard",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-            if (items.isNotEmpty()) {
+        // The shell's app bar already names this page. This row carries only the arrange action.
+        if (items.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
                     text = if (arranging) "Done" else "Arrange",
                     style = MaterialTheme.typography.labelLarge,

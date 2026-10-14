@@ -68,11 +68,7 @@ fun AppsScreen(
 
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
 
-        Text(
-            text = "Apps",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold
-        )
+        // The shell's app bar already names this page.
         Spacer(Modifier.width(8.dp))
 
         OutlinedTextField(

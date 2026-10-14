@@ -159,7 +159,6 @@ fun LogsScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
-                Text("System & App Logs", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Text(
                     text = "${filtered.size} visible of $totalCount buffered" + if (isLiveFeedPaused) " • (PAUSED)" else " • (LIVE)",
                     style = MaterialTheme.typography.labelSmall,
