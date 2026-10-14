@@ -36,8 +36,21 @@ class DeviceLockGate(
 
     /** Any interaction by an authenticated user keeps the gate open. */
     fun onUserActivity() {
-        policy.recordActivity()
+        if (policy.isForeground.value) policy.enterForeground()
     }
+
+    /** The app came to the foreground: the away-window closes, so locking cannot trigger. */
+    fun onForeground() {
+        policy.enterForeground()
+    }
+
+    /** The app left the foreground: the away-window opens and the timeout clock starts. */
+    fun onBackground() {
+        policy.enterBackground()
+    }
+
+    /** Whether the app is currently in the foreground. */
+    val isForeground: StateFlow<Boolean> get() = policy.isForeground
 
     /** Persisted inactivity policy. */
     fun setTimeout(timeout: LockTimeout) {
@@ -47,19 +60,25 @@ class DeviceLockGate(
 
     /**
      * Evaluates the policy. Returns true when the caller must present the lock screen.
+     *
+     * Only ever true while the app is away, so unlocking returns the user to a usable platform
+     * regardless of how aggressive the timeout is.
      */
     fun evaluate(): Boolean {
         if (!policy.shouldLock()) return false
         if (_mustUnlock.value) return true
         _mustUnlock.value = true
-        logger.i("DeviceLockGate", "Locking after ${policy.idleMillis()}ms idle (${policy.timeout.value.label})")
+        logger.i(
+            "DeviceLockGate",
+            "Locked after ${policy.awayMillis()}ms away (${policy.timeout.value.label})"
+        )
         return true
     }
 
     /** Called after successful biometric or device-credential authentication. */
     fun onUnlocked() {
         _mustUnlock.value = false
-        policy.recordActivity()
+        policy.enterForeground()
     }
 
     /** Locks now, regardless of the inactivity policy. */

@@ -7,8 +7,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Proves the inactivity rule: the platform locks once the configured idle window closes, and
- * activity resets it.
+ * Proves the lock rule: the clock only runs while the app is *away*, so unlocking returns the
+ * user to a usable platform regardless of how aggressive the timeout is.
  */
 class IdleLockPolicyTest {
 
@@ -16,48 +16,89 @@ class IdleLockPolicyTest {
     private fun policy() = IdleLockPolicy(PlatformLogger()) { now }
 
     @Test
-    fun `does not lock before the window closes`() {
+    fun `never locks while the app is in the foreground`() {
         val p = policy()
-        p.setTimeout(LockTimeout.FIVE_MINUTES)
-        now += 299_000
+        p.setTimeout(LockTimeout.IMMEDIATE)
 
+        // A long session with no interaction must not lock the user out mid-use.
+        now += 600_000
+        assertTrue(p.isForeground.value)
         assertFalse(p.shouldLock())
     }
 
     @Test
-    fun `locks once the window closes`() {
+    fun `immediate locks as soon as the app leaves`() {
         val p = policy()
-        p.setTimeout(LockTimeout.FIVE_MINUTES)
-        now += 300_000
+        p.setTimeout(LockTimeout.IMMEDIATE)
 
+        p.enterBackground()
         assertTrue(p.shouldLock())
     }
 
     @Test
-    fun `activity resets the idle window`() {
+    fun `timed policies do not lock before the window closes`() {
         val p = policy()
-        p.setTimeout(LockTimeout.ONE_MINUTE)
-        now += 90_000
-        assertTrue("idle long enough", p.shouldLock())
+        p.setTimeout(LockTimeout.FIVE_MINUTES)
 
-        p.recordActivity()
-        assertFalse("activity resets the window", p.shouldLock())
+        p.enterBackground()
+        now += 299_000
+        assertFalse(p.shouldLock())
+
+        now += 2_000
+        assertTrue(p.shouldLock())
     }
 
     @Test
-    fun `immediate policy locks as soon as any time passes`() {
+    fun `coming back to the foreground clears the lock`() {
         val p = policy()
         p.setTimeout(LockTimeout.IMMEDIATE)
 
-        assertFalse("not yet at the instant of leaving", p.shouldLock())
-        now += 1
-        assertTrue("locks immediately after leaving", p.shouldLock())
+        p.enterBackground()
+        assertTrue(p.shouldLock())
+
+        p.enterForeground()
+        assertFalse("returning to the app must not stay locked", p.shouldLock())
+    }
+
+    @Test
+    fun `unlocking then leaving again locks again`() {
+        val p = policy()
+        p.setTimeout(LockTimeout.IMMEDIATE)
+
+        p.enterBackground()
+        assertTrue(p.shouldLock())
+        p.enterForeground()
+        assertFalse(p.shouldLock())
+
+        now += 5_000
+        assertFalse("staying in the app must not re-lock", p.shouldLock())
+
+        p.enterBackground()
+        assertTrue("leaving again locks", p.shouldLock())
+    }
+
+    @Test
+    fun `away duration restarts on each departure`() {
+        val p = policy()
+        p.setTimeout(LockTimeout.ONE_MINUTE)
+
+        p.enterBackground()
+        now += 90_000
+        assertTrue(p.shouldLock())
+
+        p.enterForeground()
+        p.enterBackground()
+        assertFalse("the away window restarts", p.shouldLock())
+
+        now += 61_000
+        assertTrue(p.shouldLock())
     }
 
     @Test
     fun `timeout choice changes the threshold`() {
         val p = policy()
         p.setTimeout(LockTimeout.ONE_HOUR)
+        p.enterBackground()
         now += 301_000
         assertFalse(p.shouldLock())
 
@@ -66,10 +107,11 @@ class IdleLockPolicyTest {
     }
 
     @Test
-    fun `idle duration never goes negative`() {
+    fun `away duration never goes negative`() {
         val p = policy()
+        p.enterBackground()
         now -= 5_000
-        assertEquals(0L, p.idleMillis())
+        assertEquals(0L, p.awayMillis())
     }
 
     @Test

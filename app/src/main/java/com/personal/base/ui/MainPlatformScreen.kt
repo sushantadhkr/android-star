@@ -22,6 +22,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -76,7 +80,22 @@ fun MainPlatformScreen(
     val isLockEnabled by container.biometricProvider.isLockEnabled.collectAsState()
     val gateLocked by container.deviceLockGate.mustUnlock.collectAsState()
 
-    // Evaluate the inactivity policy; it latches once the idle window closes.
+    // The lock clock only runs while the app is away. While it is on screen the user is present,
+    // so an aggressive timeout can never re-lock on top of them straight after unlocking.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> container.deviceLockGate.onForeground()
+                Lifecycle.Event.ON_STOP -> container.deviceLockGate.onBackground()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // Evaluate the away policy; it latches once the away window closes.
     if (isLockEnabled) {
         container.deviceLockGate.evaluate()
     }
@@ -171,26 +190,29 @@ fun MainPlatformScreen(
         }
     ) { innerPadding ->
         val contentModifier = Modifier.padding(innerPadding)
-        when (currentDestination) {
-            NavigationDestination.DASHBOARD -> DashboardScreen(
-                container = container,
-                modifier = contentModifier
-            )
-            NavigationDestination.APPS -> AppsScreen(container = container, modifier = contentModifier)
-            NavigationDestination.LOGS -> LogsScreen(container = container, modifier = contentModifier)
-            NavigationDestination.SETTINGS -> SettingsScreen(
-                container = container,
-                onOpenCapabilities = { overlay = OverlayDestination.CAPABILITIES },
-                modifier = contentModifier
-            )
-        }
 
-        // Overlays sit above the current page and return to it on dismissal.
-        overlay?.let { target ->
-            when (target) {
+        // An overlay replaces the page beneath it. Rendering both would stack two full screens in
+        // the same slot, which is what made the pages appear to overlap.
+        val activeOverlay = overlay
+        if (activeOverlay != null) {
+            when (activeOverlay) {
                 OverlayDestination.CAPABILITIES -> CapabilitiesScreen(
                     container = container,
                     onBack = { overlay = null },
+                    modifier = contentModifier
+                )
+            }
+        } else {
+            when (currentDestination) {
+                NavigationDestination.DASHBOARD -> DashboardScreen(
+                    container = container,
+                    modifier = contentModifier
+                )
+                NavigationDestination.APPS -> AppsScreen(container = container, modifier = contentModifier)
+                NavigationDestination.LOGS -> LogsScreen(container = container, modifier = contentModifier)
+                NavigationDestination.SETTINGS -> SettingsScreen(
+                    container = container,
+                    onOpenCapabilities = { overlay = OverlayDestination.CAPABILITIES },
                     modifier = contentModifier
                 )
             }

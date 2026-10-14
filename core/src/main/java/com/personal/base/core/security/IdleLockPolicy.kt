@@ -6,9 +6,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * How long the platform tolerates inactivity before locking.
+ * How long the platform tolerates being away before locking.
  *
- * [IMMEDIATE] means the platform re-locks as soon as the user leaves.
+ * The clock starts when the app leaves the foreground, not from the last tap — so "immediately"
+ * means the moment you leave, never while you are still using it.
  */
 enum class LockTimeout(val label: String, val millis: Long) {
     IMMEDIATE("Immediately after leaving", 0L),
@@ -25,10 +26,12 @@ enum class LockTimeout(val label: String, val millis: Long) {
 }
 
 /**
- * Tracks user inactivity and decides when the platform must lock.
+ * Decides when the platform must lock, based on how long the app has been *away*.
  *
- * This is policy, not feature: the platform never carries device-lock logic of its own. It is
- * driven by the core biometric capability, and the shell only renders the result.
+ * The distinction that matters is foreground versus background. Locking is only ever considered
+ * once the app has left the foreground; while the user is actively in the app, the platform stays
+ * open regardless of the timeout. Without that split, an "immediate" policy would re-lock on the
+ * next frame after the user unlocked, which is the bug this class exists to prevent.
  *
  * The clock is injected so the rule can be tested without waiting in real time.
  */
@@ -37,39 +40,46 @@ class IdleLockPolicy(
     private val now: () -> Long = System::currentTimeMillis
 ) {
 
-    private var lastActivityAt: Long = now()
-
     private val _timeout = MutableStateFlow(LockTimeout.FIVE_MINUTES)
     val timeout: StateFlow<LockTimeout> = _timeout.asStateFlow()
 
-    /** Notes that the user is present. Any interaction resets the idle window. */
-    fun recordActivity() {
-        lastActivityAt = now()
-    }
+    private val _isForeground = MutableStateFlow(true)
+    val isForeground: StateFlow<Boolean> = _isForeground.asStateFlow()
+
+    /** When the app left the foreground, or when it was last used while in the foreground. */
+    private var awaySince: Long = now()
 
     fun setTimeout(value: LockTimeout) {
         _timeout.value = value
         logger.i("IdleLockPolicy", "Lock timeout set to ${value.label}")
     }
 
-    /** Idle duration in milliseconds. */
-    fun idleMillis(): Long = (now() - lastActivityAt).coerceAtLeast(0L)
-
-    /**
-     * Whether the inactivity policy is currently satisfied.
-     *
-     * Immediate locking is deliberately strict: it must not trip at the instant the policy is
-     * created, otherwise the platform would lock on startup before the user had any chance to
-     * interact. It therefore requires at least one millisecond to have elapsed.
-     */
-    fun shouldLock(): Boolean {
-        val idle = idleMillis()
-        val threshold = _timeout.value.millis
-        return if (threshold <= 0L) idle > 0L else idle >= threshold
+    /** The app came to the foreground. The away-window closes. */
+    fun enterForeground() {
+        _isForeground.value = true
+        awaySince = now()
     }
 
-    /** Forces the idle window closed, used when the user leaves the foreground. */
-    fun markLeft() {
-        lastActivityAt = now()
+    /** The app left the foreground. The away-window opens and the clock starts. */
+    fun enterBackground() {
+        _isForeground.value = false
+        awaySince = now()
+    }
+
+    /** How long the app has been away. */
+    fun awayMillis(): Long = (now() - awaySince).coerceAtLeast(0L)
+
+    /**
+     * Whether the lock policy is satisfied.
+     *
+     * Never satisfied while the app is in the foreground — the user is right there. Otherwise the
+     * elapsed time away must reach the configured timeout. Immediate locking needs no grace period
+     * at all, so it fires as soon as the app has been away.
+     */
+    fun shouldLock(): Boolean {
+        if (_isForeground.value) return false
+        val away = awayMillis()
+        val threshold = _timeout.value.millis
+        return if (threshold <= 0L) away >= 0L else away >= threshold
     }
 }
