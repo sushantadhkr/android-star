@@ -151,4 +151,65 @@ class WiredCapabilitiesTest {
         )
         assertTrue("a non-http download must be refused", badUrl.status == 400)
     }
+
+    @Test
+    fun theFileServerReallyListensAndServes() {
+        ok("FILE_SERVER", "start", "port" to 18080)
+        ok("FILE_SERVER", "put", "name" to "probe.txt", "content" to "hello from the test")
+        ok("FILE_SERVER", "list")
+        ok("FILE_SERVER", "status")
+
+        // The whole point is a real socket: connect to it and read the file back over HTTP.
+        val socket = java.net.Socket("127.0.0.1", 18080)
+        try {
+            socket.getOutputStream().apply {
+                write("GET /file/probe.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n".toByteArray())
+                flush()
+            }
+            val body = socket.getInputStream().bufferedReader().readText()
+            assertTrue("the served file must come back over the socket", body.contains("hello from the test"))
+        } finally {
+            socket.close()
+        }
+
+        ok("FILE_SERVER", "delete", "name" to "probe.txt")
+        ok("FILE_SERVER", "stop")
+    }
+
+    @Test
+    fun theChatServerReallyListens() {
+        ok("NEARBY_CHAT", "start", "port" to 19090)
+        ok("NEARBY_CHAT", "peers")
+        ok("NEARBY_CHAT", "messages")
+        ok("NEARBY_CHAT", "stop")
+
+        // Connecting to a stopped listener must be refused rather than accepted by a stale socket.
+        val refused = runCatching { java.net.Socket("127.0.0.1", 19090).close() }.isFailure
+        assertTrue("a stopped chat server must not still be listening", refused)
+    }
+
+    @Test
+    fun sendingWithNoPeersIsRefusedRatherThanFaked() {
+        ok("NEARBY_CHAT", "start", "port" to 19091)
+        val response = actions.invoke(
+            CapabilityType.NEARBY_CHAT,
+            "send",
+            JsonObject(mapOf(
+                "capability" to JsonPrimitive("NEARBY_CHAT"),
+                "action" to JsonPrimitive("send"),
+                "content" to JsonPrimitive("anyone there?")
+            ))
+        )
+        // No peers are connected, so this must say so rather than claim a message went out.
+        assertTrue("sending to nobody must not report success", response.status != 200)
+        ok("NEARBY_CHAT", "stop")
+    }
+
+    @Test
+    fun sftpAdvertisesNothingBecauseThereIsNoDaemon() {
+        assertTrue(
+            "SFTP has no daemon behind it, so it must not advertise a start action",
+            actions.actionsFor(CapabilityType.SFTP_SERVER).isEmpty()
+        )
+    }
 }

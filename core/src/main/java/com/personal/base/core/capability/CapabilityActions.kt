@@ -10,10 +10,13 @@ import com.personal.base.platform.capabilities.AudioStreamCapabilityProvider
 import com.personal.base.platform.capabilities.BluetoothCapabilityProvider
 import com.personal.base.platform.capabilities.BluetoothDeviceInfo
 import com.personal.base.platform.capabilities.DownloadManagerCapabilityProvider
+import com.personal.base.platform.capabilities.FileServerCapabilityProvider
 import com.personal.base.platform.capabilities.GeofenceActivityCapabilityProvider
 import com.personal.base.platform.capabilities.HealthConnectCapabilityProvider
 import com.personal.base.platform.capabilities.LocationCapabilityProvider
 import com.personal.base.platform.capabilities.MediaSessionCapabilityProvider
+import com.personal.base.platform.capabilities.NearbyChatCapabilityProvider
+import com.personal.base.platform.capabilities.PeerAuthDecision
 import com.personal.base.platform.capabilities.PackageInstallerCapabilityProvider
 import com.personal.base.platform.capabilities.PlatformGeofence
 import com.personal.base.platform.capabilities.AlarmTimerCapabilityProvider
@@ -414,6 +417,70 @@ class CapabilityActions(
                 ActionSpec("startSteps", "Begin counting steps using the hardware step counter", emptyList(),
                     """{"capability":"HEALTH_CONNECT","action":"startSteps"}""",
                     """{"listening":true}""", handler = { p -> healthStartSteps(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.FILE_SERVER, "Serve files from the phone over the network", listOf(
+                ActionSpec("start", "Start serving the shared folder", listOf(
+                    ParamDoc("port", "integer", false, "Port to listen on", "8080")
+                ), """{"capability":"FILE_SERVER","action":"start","port":8080}""",
+                    """{"running":true,"port":8080,"files":0}""", handler = { p -> fileServer(p) }),
+                ActionSpec("stop", "Stop serving", emptyList(),
+                    """{"capability":"FILE_SERVER","action":"stop"}""",
+                    """{"running":false}""", handler = { p -> fileServer(p) }),
+                ActionSpec("status", "Whether it is serving, and on which port", emptyList(),
+                    """{"capability":"FILE_SERVER","action":"status"}""",
+                    """{"running":true,"port":8080,"files":2}""", handler = { p -> fileServer(p) }),
+                ActionSpec("list", "The files currently shared", emptyList(),
+                    """{"capability":"FILE_SERVER","action":"list"}""",
+                    """{"count":1,"files":[{"name":"notes.txt","sizeBytes":2048,"formattedSize":"2.0 KB","modified":"2 hours ago","directory":false}]}""",
+                    handler = { p -> fileServer(p) }),
+                ActionSpec("put", "Add a text file to the shared folder", listOf(
+                    ParamDoc("name", "string", true, "File name to write", "note.txt"),
+                    ParamDoc("content", "string", true, "What to put in it", "hello")
+                ), """{"capability":"FILE_SERVER","action":"put","name":"note.txt","content":"hello"}""",
+                    """{"written":true,"name":"note.txt"}""", handler = { p -> fileServer(p) }),
+                ActionSpec("delete", "Remove a file from the shared folder", listOf(
+                    ParamDoc("name", "string", true, "File to delete", "note.txt")
+                ), """{"capability":"FILE_SERVER","action":"delete","name":"note.txt"}""",
+                    """{"deleted":true,"name":"note.txt"}""", handler = { p -> fileServer(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.NEARBY_CHAT, "Signed peer-to-peer messaging on the local network", listOf(
+                ActionSpec("start", "Listen for nearby peers", listOf(
+                    ParamDoc("port", "integer", false, "Port to listen on", "9090")
+                ), """{"capability":"NEARBY_CHAT","action":"start","port":9090}""",
+                    """{"listening":true,"port":9090}""", handler = { p -> nearbyChat(p) }),
+                ActionSpec("stop", "Stop listening", emptyList(),
+                    """{"capability":"NEARBY_CHAT","action":"stop"}""",
+                    """{"listening":false}""", handler = { p -> nearbyChat(p) }),
+                ActionSpec("peers", "Peers seen so far, and how much they are trusted", emptyList(),
+                    """{"capability":"NEARBY_CHAT","action":"peers"}""",
+                    """{"listening":true,"count":1,"peers":[{"id":"abc","name":"Pixel","address":"100.101.1.9:9090","connected":true,"trust":"ALWAYS"}]}""",
+                    handler = { p -> nearbyChat(p) }),
+                ActionSpec("connect", "Reach out to a peer by address", listOf(
+                    ParamDoc("ip", "string", true, "The peer's IP address", "100.101.1.9"),
+                    ParamDoc("port", "integer", false, "The peer's port", "9090"),
+                    ParamDoc("name", "string", false, "Name to show for it", "Peer Device")
+                ), """{"capability":"NEARBY_CHAT","action":"connect","ip":"100.101.1.9"}""",
+                    """{"connecting":true}""", handler = { p -> nearbyChat(p) }),
+                ActionSpec("send", "Send a signed message to connected peers", listOf(
+                    ParamDoc("content", "string", true, "What to say", "on my way")
+                ), """{"capability":"NEARBY_CHAT","action":"send","content":"on my way"}""",
+                    """{"sent":true}""", handler = { p -> nearbyChat(p) }),
+                ActionSpec("messages", "Messages received so far, newest first", listOf(
+                    ParamDoc("limit", "integer", false, "How many to return", "20")
+                ), """{"capability":"NEARBY_CHAT","action":"messages","limit":10}""",
+                    """{"count":1,"messages":[{"from":"Pixel","content":"hi there","at":1752000000000}]}""",
+                    handler = { p -> nearbyChat(p) }),
+                ActionSpec("trust", "Decide whether to trust a peer that asked", listOf(
+                    ParamDoc("decision", "string", true, "One of always, once, reject", "once")
+                ), """{"capability":"NEARBY_CHAT","action":"trust","decision":"once"}""",
+                    """{"resolved":true,"decision":"THIS_TIME_ONLY"}""", handler = { p -> nearbyChat(p) }),
+                ActionSpec("forget", "Forget every trusted peer", emptyList(),
+                    """{"capability":"NEARBY_CHAT","action":"forget"}""",
+                    """{"cleared":true}""", handler = { p -> nearbyChat(p) })
             )
         ),
         CapabilitySpec(
@@ -972,6 +1039,173 @@ class CapabilityActions(
                 put("bytes", message.toByteArray().size)
             }.toString()
         )
+    }
+
+    private fun fileServer(p: JsonObject): ServerResponse {
+        val provider = provider<FileServerCapabilityProvider>(CapabilityType.FILE_SERVER)
+            ?: return unsupported(CapabilityType.FILE_SERVER)
+
+        return when (p.string("action")) {
+            "start" -> {
+                val port = p.int("port") ?: 8080
+                if (port !in 1024..65535) return badRequest("'port' must be 1024-65535")
+                if (!provider.startServer(port)) {
+                    return ServerResponse(
+                        409, "application/json",
+                        """{"error":"Could not listen on port $port","hint":"Something else may already be using it"}"""
+                    )
+                }
+                ServerResponse.json(
+                    """{"running":true,"port":$port,"files":${provider.getFilesList().size}}"""
+                )
+            }
+            "stop" -> {
+                provider.stopServer()
+                ServerResponse.json("""{"running":false}""")
+            }
+            "status" -> ServerResponse.json(
+                """{"running":${provider.serverState.value.isRunning},"port":${provider.serverState.value.port},"files":${provider.getFilesList().size}}"""
+            )
+            "list" -> {
+                val files = provider.getFilesList()
+                ServerResponse.json(
+                    buildJsonObject {
+                        put("count", files.size)
+                        put("files", buildJsonArray {
+                            files.forEach { f ->
+                                add(
+                                    buildJsonObject {
+                                        put("name", f.name)
+                                        put("sizeBytes", f.sizeBytes)
+                                        put("formattedSize", f.formattedSize)
+                                        put("modified", f.lastModifiedFormatted)
+                                        put("directory", f.isDirectory)
+                                    }
+                                )
+                            }
+                        })
+                    }.toString()
+                )
+            }
+            "put" -> {
+                val name = p.string("name") ?: return badRequest("Missing 'name'")
+                val content = p.string("content") ?: return badRequest("Missing 'content'")
+                if (!provider.addCustomFile(name, content)) {
+                    return ServerResponse(409, "application/json", """{"error":"Could not write $name"}""")
+                }
+                ServerResponse.json("""{"written":true,"name":"$name"}""")
+            }
+            "delete" -> {
+                val name = p.string("name") ?: return badRequest("Missing 'name'")
+                if (!provider.deleteFile(name)) {
+                    return ServerResponse(404, "application/json", """{"error":"No such file: $name"}""")
+                }
+                ServerResponse.json("""{"deleted":true,"name":"$name"}""")
+            }
+            else -> badRequest("'action' must be start, stop, status, list, put or delete")
+        }
+    }
+
+    private fun nearbyChat(p: JsonObject): ServerResponse {
+        val provider = provider<NearbyChatCapabilityProvider>(CapabilityType.NEARBY_CHAT)
+            ?: return unsupported(CapabilityType.NEARBY_CHAT)
+
+        return when (p.string("action")) {
+            "start" -> {
+                val port = p.int("port") ?: 9090
+                if (port !in 1024..65535) return badRequest("'port' must be 1024-65535")
+                if (!provider.startServer(port)) {
+                    return ServerResponse(
+                        409, "application/json",
+                        """{"error":"Could not listen on port $port","hint":"Something else may already be using it"}"""
+                    )
+                }
+                ServerResponse.json("""{"listening":true,"port":$port}""")
+            }
+            "stop" -> {
+                provider.stopServer()
+                ServerResponse.json("""{"listening":false}""")
+            }
+            "peers" -> {
+                val peers = provider.activePeers.value
+                ServerResponse.json(
+                    buildJsonObject {
+                        put("listening", provider.isServerRunning.value)
+                        put("count", peers.size)
+                        put("peers", buildJsonArray {
+                            peers.forEach { peer ->
+                                add(
+                                    buildJsonObject {
+                                        put("id", peer.id)
+                                        put("name", peer.name)
+                                        put("address", peer.address)
+                                        put("connected", peer.isConnected)
+                                        put("trust", peer.trustLevel)
+                                    }
+                                )
+                            }
+                        })
+                    }.toString()
+                )
+            }
+            "connect" -> {
+                val ip = p.string("ip") ?: return badRequest("Missing 'ip'")
+                val port = p.int("port") ?: 9090
+                if (port !in 1..65535) return badRequest("'port' must be 1-65535")
+                // Deliberately fire-and-forget: the socket is opened on a background scope and the
+                // handshake finishes on its own. Pretending it connected would be a lie.
+                provider.connectToPeer(ip, port, p.string("name") ?: "Peer Device")
+                ServerResponse.json("""{"connecting":true}""")
+            }
+            "send" -> {
+                val content = p.string("content") ?: return badRequest("Missing 'content'")
+                if (!provider.sendMessage(content)) {
+                    return ServerResponse(
+                        409, "application/json",
+                        """{"error":"Nothing sent","hint":"No peers are connected yet"}"""
+                    )
+                }
+                ServerResponse.json("""{"sent":true}""")
+            }
+            "messages" -> {
+                val limit = p.int("limit") ?: 20
+                val messages = provider.messages.value.takeLast(limit.coerceAtLeast(0))
+                ServerResponse.json(
+                    buildJsonObject {
+                        put("count", messages.size)
+                        put("messages", buildJsonArray {
+                            messages.forEach { m ->
+                                add(
+                                    buildJsonObject {
+                                        put("from", m.senderName)
+                                        put("content", m.content)
+                                        put("at", m.timestamp)
+                                    }
+                                )
+                            }
+                        })
+                    }.toString()
+                )
+            }
+            "trust" -> {
+                val name = p.string("decision")?.lowercase() ?: return badRequest("Missing 'decision'")
+                val decision = when (name) {
+                    "always" -> PeerAuthDecision.ALWAYS
+                    "once", "this-time-only" -> PeerAuthDecision.THIS_TIME_ONLY
+                    "reject", "no" -> PeerAuthDecision.REJECT
+                    else -> return badRequest("'decision' must be one of always, once, reject")
+                }
+                provider.resolveAuthRequest(decision)
+                ServerResponse.json("""{"resolved":true,"decision":"$name"}""")
+            }
+            "forget" -> {
+                provider.clearTrustedPeers()
+                ServerResponse.json("""{"cleared":true}""")
+            }
+            else -> badRequest(
+                "'action' must be start, stop, peers, connect, send, messages, trust or forget"
+            )
+        }
     }
 
     private fun mediaTransport(p: JsonObject): ServerResponse {

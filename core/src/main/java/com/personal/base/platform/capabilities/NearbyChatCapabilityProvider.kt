@@ -299,6 +299,14 @@ class NearbyChatCapabilityProvider(
     fun sendMessage(content: String): Boolean {
         if (content.isBlank()) return false
 
+        // Reporting success with nobody listening would be the worst kind of lie here: the caller
+        // would tell a peer something was sent when no socket was ever written to. Refuse, and say
+        // why, instead of pretending.
+        if (peerWriters.isEmpty()) {
+            logger.w("NearbyChat", "Refusing to send: no peers are connected")
+            return false
+        }
+
         val timeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
         val signature = deviceSigner.signString(content)
         val outgoingMsg = ChatMessage(

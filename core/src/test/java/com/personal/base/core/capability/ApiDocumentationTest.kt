@@ -107,26 +107,54 @@ class ApiDocumentationTest {
     }
 
     @Test
-    fun `every advertised action names a provider the shell actually registers`() {
-        // An action pointing at an unregistered provider answers 409 forever, which is a promise
-        // the platform cannot keep. The real container is read rather than a list kept beside the
-        // code, because a list kept beside the code is exactly what goes stale.
+    fun `every advertised action names a provider the container builds`() {
+        // An action pointing at a provider the shell never constructs answers 409 forever, which
+        // is a promise the platform cannot keep. The real container is read rather than a list
+        // kept beside the code, because a list kept beside the code is what goes stale.
         val container = File("../app/src/main/java/com/personal/base/di/PlatformContainer.kt")
         assertTrue("the container should be readable from here", container.exists())
+        val source = container.readText()
 
-        val registered = Regex("""capabilityRegistry\.register\(\s*([A-Za-z]+)\(""")
-            .findAll(container.readText()).map { it.groupValues[1] }.toSet()
+        // Construction rather than `register(...)` specifically, because a provider may be built
+        // into a variable and registered by that name — which is the normal pattern once a provider
+        // has dependencies.
+        val built = Regex("""\b([A-Za-z]+)\(""").findAll(source)
+            .map { it.groupValues[1] }
+            .filter { it.endsWith("CapabilityProvider") }
+            .toSet()
 
-        val source = File("src/main/java/com/personal/base/core/capability/CapabilityActions.kt")
-        val advertised = Regex("""provider<([A-Za-z]+)>\(""")
-            .findAll(source.readText()).map { it.groupValues[1] }.toSet()
-
-        val orphans = advertised - registered
+        val actionsFile = File("src/main/java/com/personal/base/core/capability/CapabilityActions.kt")
         assertTrue(
-            "these providers back advertised actions but are never registered: $orphans",
+            "the actions file should be readable from here: " + actionsFile.absolutePath,
+            actionsFile.exists()
+        )
+        val advertised = Regex("provider<([A-Za-z]+)>")
+            .findAll(actionsFile.readText())
+            .map { it.groupValues[1] }
+            .toSet()
+
+        val orphans = advertised - built
+        assertTrue(
+            "these providers back advertised actions but the container never builds them: $orphans",
             orphans.isEmpty()
         )
-        assertTrue("the test should be finding real providers", advertised.size > 20)
+        assertTrue("the test found only ${advertised.size} providers: $advertised", advertised.size > 20)
+    }
+
+    @Test
+    fun `a provider that opens no socket is not registered`() {
+        // SftpServerCapabilityProvider sets a boolean and logs "SFTP daemon initialized" without
+        // opening anything. Registering it would tell a caller a server is running when there is
+        // nothing to connect to, which is the one thing this API must never do.
+        val container = File("../app/src/main/java/com/personal/base/di/PlatformContainer.kt")
+        assertTrue(
+            "SFTP has no daemon behind it and must stay unregistered",
+            !Regex("""\bSftpServerCapabilityProvider\(""").findAll(container.readText()).any()
+        )
+        assertTrue(
+            "SFTP_SERVER must advertise nothing while it does nothing",
+            actions.actionsFor(CapabilityType.SFTP_SERVER).isEmpty()
+        )
     }
 
     @Test

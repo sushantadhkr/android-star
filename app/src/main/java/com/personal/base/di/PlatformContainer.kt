@@ -93,6 +93,8 @@ import com.personal.base.platform.capabilities.CameraMicCapabilityProvider
 import com.personal.base.platform.capabilities.ClipboardBackgroundCapabilityProvider
 import com.personal.base.platform.capabilities.ClipboardCapabilityProvider
 import com.personal.base.platform.capabilities.ConnectivityCapabilityProvider
+import com.personal.base.platform.capabilities.FileServerCapabilityProvider
+import com.personal.base.platform.capabilities.NearbyChatCapabilityProvider
 import com.personal.base.platform.capabilities.ContactsAccountsCapabilityProvider
 import com.personal.base.platform.capabilities.CredentialManagerCapabilityProvider
 import com.personal.base.platform.capabilities.DeviceActionCapabilityProvider
@@ -125,7 +127,6 @@ import com.personal.base.platform.capabilities.QrBarcodeCapabilityProvider
 import com.personal.base.platform.capabilities.RemoteInputCapabilityProvider
 import com.personal.base.platform.capabilities.RestrictedShellCapabilityProvider
 import com.personal.base.platform.capabilities.SensorsCapabilityProvider
-import com.personal.base.platform.capabilities.SftpServerCapabilityProvider
 import com.personal.base.platform.capabilities.SharingCapabilityProvider
 import com.personal.base.platform.capabilities.CallControlCapabilityProvider
 import com.personal.base.platform.capabilities.ScreenCaptureCapabilityProvider
@@ -359,7 +360,6 @@ class PlatformContainer(val context: Context) {
         capabilityRegistry.register(CredentialManagerCapabilityProvider(context, logger))
         capabilityRegistry.register(OnDeviceMlCapabilityProvider(context, logger))
         capabilityRegistry.register(RestrictedShellCapabilityProvider(logger))
-        capabilityRegistry.register(SftpServerCapabilityProvider(logger))
         capabilityRegistry.register(AllFilesAccessCapabilityProvider(context, logger))
         capabilityRegistry.register(InputMethodCapabilityProvider(logger))
         capabilityRegistry.register(ClipboardBackgroundCapabilityProvider(context, logger))
@@ -381,12 +381,22 @@ class PlatformContainer(val context: Context) {
         capabilityRegistry.register(DeviceActionCapabilityProvider(context, logger))
         capabilityRegistry.register(CameraMicCapabilityProvider(context, permissionManager, isAudio = false, logger))
         capabilityRegistry.register(CameraMicCapabilityProvider(context, permissionManager, isAudio = true, logger))
-        capabilityRegistry.register(ConnectivityCapabilityProvider(context, logger))
+        val connectivityProvider = ConnectivityCapabilityProvider(context, logger)
+        capabilityRegistry.register(connectivityProvider)
         capabilityRegistry.register(BluetoothCapabilityProvider(context, permissionManager, logger))
         capabilityRegistry.register(StorageCapabilityProvider(context, permissionManager, logger))
         capabilityRegistry.register(TelephonyCallLogCapabilityProvider(context, permissionManager, logger))
         capabilityRegistry.register(ContactsAccountsCapabilityProvider(context, permissionManager, logger))
         capabilityRegistry.register(SmsCapabilityProvider(context, permissionManager, logger))
+
+        // These two open real sockets, so they are registered and their actions are advertised.
+        //
+        // SftpServerCapabilityProvider is deliberately not registered: it sets a boolean and logs
+        // "SFTP daemon initialized" without opening anything. Advertising it would tell a caller a
+        // server is running when there is nothing to connect to. Until it has a real daemon it
+        // stays bare, and a test says so.
+        capabilityRegistry.register(FileServerCapabilityProvider(context, connectivityProvider, logger))
+        capabilityRegistry.register(NearbyChatCapabilityProvider(context, deviceSigner, connectivityProvider, logger))
 
         // Initialize background tasks
         backgroundManager.initialize()
