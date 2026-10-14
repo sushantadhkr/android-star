@@ -5,26 +5,52 @@ import com.personal.base.core.platform.NotificationActionContract
 import com.personal.base.core.platform.NotificationButton
 import com.personal.base.core.platform.NotificationInput
 import com.personal.base.core.platform.ServerResponse
+import com.personal.base.core.plugin.PlatformLocation
+import com.personal.base.platform.capabilities.AudioStreamCapabilityProvider
+import com.personal.base.platform.capabilities.BluetoothCapabilityProvider
+import com.personal.base.platform.capabilities.BluetoothDeviceInfo
+import com.personal.base.platform.capabilities.DownloadManagerCapabilityProvider
+import com.personal.base.platform.capabilities.GeofenceActivityCapabilityProvider
+import com.personal.base.platform.capabilities.HealthConnectCapabilityProvider
+import com.personal.base.platform.capabilities.LocationCapabilityProvider
+import com.personal.base.platform.capabilities.MediaSessionCapabilityProvider
+import com.personal.base.platform.capabilities.PackageInstallerCapabilityProvider
+import com.personal.base.platform.capabilities.PlatformGeofence
+import com.personal.base.platform.capabilities.AlarmTimerCapabilityProvider
+import com.personal.base.platform.capabilities.AudioVolumeCapabilityProvider
 import com.personal.base.platform.capabilities.BatteryPowerCapabilityProvider
+import com.personal.base.platform.capabilities.CalendarCapabilityProvider
+import com.personal.base.platform.capabilities.CallControlCapabilityProvider
 import com.personal.base.platform.capabilities.CameraMicCapabilityProvider
 import com.personal.base.platform.capabilities.ClipboardCapabilityProvider
+import com.personal.base.platform.capabilities.ClipboardBackgroundCapabilityProvider
 import com.personal.base.platform.capabilities.ClipboardRead
 import com.personal.base.platform.capabilities.ConnectivityCapabilityProvider
+import com.personal.base.platform.capabilities.ContactsAccountsCapabilityProvider
+import com.personal.base.platform.capabilities.CredentialManagerCapabilityProvider
 import com.personal.base.platform.capabilities.DeviceActionCapabilityProvider
+import com.personal.base.platform.capabilities.DeviceAdminCapabilityProvider
 import com.personal.base.platform.capabilities.DeviceInfoCapabilityProvider
 import com.personal.base.platform.capabilities.DisplayCapabilityProvider
+import com.personal.base.platform.capabilities.DoNotDisturbCapabilityProvider
 import com.personal.base.platform.capabilities.FlashlightCapabilityProvider
 import com.personal.base.platform.capabilities.InstalledAppsCapabilityProvider
 import com.personal.base.platform.capabilities.MediaLibraryCapabilityProvider
 import com.personal.base.platform.capabilities.NetworkUsageCapabilityProvider
 import com.personal.base.platform.capabilities.NotificationCapabilityProvider
+import com.personal.base.platform.capabilities.NfcCapabilityProvider
 import com.personal.base.platform.capabilities.QrBarcodeCapabilityProvider
 import com.personal.base.platform.capabilities.ScreenCaptureCapabilityProvider
+import com.personal.base.platform.capabilities.SharingCapabilityProvider
+import com.personal.base.platform.capabilities.SimSubscriptionCapabilityProvider
 import com.personal.base.platform.capabilities.SmsCapabilityProvider
 import com.personal.base.platform.capabilities.SmsMessage
 import com.personal.base.platform.capabilities.SensorsCapabilityProvider
+import com.personal.base.platform.capabilities.StorageCapabilityProvider
 import com.personal.base.platform.capabilities.SystemSettingsCapabilityProvider
+import com.personal.base.platform.capabilities.TelephonyCallLogCapabilityProvider
 import com.personal.base.platform.capabilities.TextToSpeechCapabilityProvider
+import com.personal.base.platform.capabilities.UsbCapabilityProvider
 import com.personal.base.platform.capabilities.WifiCapabilityProvider
 import com.personal.base.platform.permissions.RestrictedPermissions
 import kotlinx.serialization.json.JsonArray
@@ -161,6 +187,233 @@ class CapabilityActions(
                 ), """{"capability":"SMS","action":"read","id":41}""",
                     """{"id":41,"address":"+441234","body":"Invoice ready","date":1752000000000,"type":"inbox","read":false}""",
                     handler = { p -> smsRead(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.ALARM_TIMER, "Set a timer through the system clock app", listOf(
+                ActionSpec("set", "Start a countdown timer", listOf(
+                    ParamDoc("seconds", "integer", true, "How long the timer runs", "300"),
+                    ParamDoc("message", "string", false, "Label shown on the timer", "Timer")
+                ), """{"capability":"ALARM_TIMER","action":"set","seconds":300,"message":"Tea"}""",
+                    """{"set":true,"seconds":300}""", handler = { p -> alarmSet(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.AUDIO_VOLUME, "Read and change the volume streams", listOf(
+                ActionSpec("get", "Current volume of every stream, as a percentage", emptyList(),
+                    """{"capability":"AUDIO_VOLUME","action":"get"}""",
+                    """{"media":40,"ring":60,"voice":70,"alarm":80,"ringerMode":"normal"}""",
+                    handler = { p -> audioVolumeGet(p) }),
+                ActionSpec("setMedia", "Set the media volume", listOf(
+                    ParamDoc("percent", "integer", true, "Volume 0-100", "40")
+                ), """{"capability":"AUDIO_VOLUME","action":"setMedia","percent":40}""",
+                    """{"set":true,"percent":40}""", handler = { p -> audioVolumeSet(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.CALENDAR, "Read the device calendar", listOf(
+                ActionSpec("upcoming", "Upcoming events across all calendars", listOf(
+                    ParamDoc("limit", "integer", false, "How many events, 1-100", "10")
+                ), """{"capability":"CALENDAR","action":"upcoming","limit":5}""",
+                    """{"count":2,"events":[{"id":1,"title":"Standup","start":1752000000000,"end":1752001800000}]}""",
+                    handler = { p -> calendarUpcoming(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.CALL_CONTROL, "Place a phone call", listOf(
+                ActionSpec("place", "Start a call to a number", listOf(
+                    ParamDoc("number", "string", true, "The number to call", "+441234567890")
+                ), """{"capability":"CALL_CONTROL","action":"place","number":"+441234567890"}""",
+                    """{"placing":true}""", handler = { p -> callPlace(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.CALL_LOG, "Read the call history", listOf(
+                ActionSpec("count", "How many calls are in the history", emptyList(),
+                    """{"capability":"CALL_LOG","action":"count"}""",
+                    """{"count":128}""", handler = { p -> callLogCount(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.CLIPBOARD_BACKGROUND, "Write to the clipboard from the background", listOf(
+                ActionSpec("write", "Copy text, which the background host is always allowed to do", listOf(
+                    ParamDoc("text", "string", true, "Text to copy", "hello"),
+                    ParamDoc("label", "string", false, "Label shown in the clipboard UI", "Android Star")
+                ), """{"capability":"CLIPBOARD_BACKGROUND","action":"write","text":"hello"}""",
+                    """{"written":true}""", handler = { p -> clipboardBgWrite(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.CONTACTS_ACCOUNTS, "Count contacts and device accounts", listOf(
+                ActionSpec("contacts", "How many contacts the device holds", emptyList(),
+                    """{"capability":"CONTACTS_ACCOUNTS","action":"contacts"}""",
+                    """{"contacts":412}""", handler = { p -> contactsCount(p) }),
+                ActionSpec("accounts", "How many accounts are on the device", emptyList(),
+                    """{"capability":"CONTACTS_ACCOUNTS","action":"accounts"}""",
+                    """{"accounts":3}""", handler = { p -> accountsCount(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.CREDENTIAL_MANAGER, "Passkey support", listOf(
+                ActionSpec("passkeys", "Whether this device and build support passkeys", emptyList(),
+                    """{"capability":"CREDENTIAL_MANAGER","action":"passkeys"}""",
+                    """{"supported":true}""", handler = { p -> passkeySupport(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.DEVICE_ADMIN, "Device administrator control", listOf(
+                ActionSpec("lockScreen", "Lock the screen now", emptyList(),
+                    """{"capability":"DEVICE_ADMIN","action":"lockScreen"}""",
+                    """{"locked":true}""", handler = { p -> deviceAdminLock(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.DISPLAY, "Read the display state", listOf(
+                ActionSpec("get", "Brightness, display state and refresh rate", emptyList(),
+                    """{"capability":"DISPLAY","action":"get"}""",
+                    """{"brightnessPercent":55,"autoBrightness":true,"displayState":"on","refreshRateHz":60.0}""",
+                    handler = { p -> displayGet(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.DO_NOT_DISTURB, "Change the Do Not Disturb filter", listOf(
+                ActionSpec("set", "Set which notifications interrupt you", listOf(
+                    ParamDoc("filter", "string", true,
+                        "One of off, priority, none, alarms", "priority")
+                ), """{"capability":"DO_NOT_DISTURB","action":"set","filter":"priority"}""",
+                    """{"set":true,"filter":"priority"}""", handler = { p -> dndSet(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.SIM_SUBSCRIPTION, "Read the SIM slots", listOf(
+                ActionSpec("slots", "Every SIM slot with its carrier and roaming state", emptyList(),
+                    """{"capability":"SIM_SUBSCRIPTION","action":"slots"}""",
+                    """{"count":2,"slots":[{"slotIndex":0,"carrierName":"EE","countryIso":"gb","dataRoaming":false}]}""",
+                    handler = { p -> simSlots(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.STORAGE, "Read storage telemetry", listOf(
+                ActionSpec("overview", "Space available and total, internal and external", emptyList(),
+                    """{"capability":"STORAGE","action":"overview"}""",
+                    """{"internalAvailableGb":41.2,"internalTotalGb":128.0,"externalAvailableGb":0.0,"externalTotalGb":0.0,"externalAvailable":false}""",
+                    handler = { p -> storageOverview(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.USB, "Read connected USB devices", listOf(
+                ActionSpec("list", "USB devices currently attached", emptyList(),
+                    """{"capability":"USB","action":"list"}""",
+                    """{"count":1,"devices":[{"name":"USB hub","vendorId":1118,"productId":42,"deviceClass":9}]}""",
+                    handler = { p -> usbList(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.NFC, "Create NFC pairing records", listOf(
+                ActionSpec("pairingRecord", "Build an NDEF record for pairing two devices", listOf(
+                    ParamDoc("peerId", "string", true, "Identifier for the other device", "peer-1"),
+                    ParamDoc("pin", "string", true, "Pairing PIN the peer must confirm", "123456")
+                ), """{"capability":"NFC","action":"pairingRecord","peerId":"peer-1","pin":"123456"}""",
+                    """{"records":[{"type":"android.com:pkg","data":"com.personal.base"}],"mime":"application/vnd.android.ndef"}""",
+                    handler = { p -> nfcPairingRecord(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.SHARING, "Send things to other apps", listOf(
+                ActionSpec("shareText", "Open the Android share sheet with some text", listOf(
+                    ParamDoc("text", "string", true, "Text to share", "look at this"),
+                    ParamDoc("title", "string", false, "Title for the chooser", "Share")
+                ), """{"capability":"SHARING","action":"shareText","text":"look at this"}""",
+                    """{"shared":true}""", handler = { p -> shareText(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.MEDIA_SESSION, "Control what the phone is playing", listOf(
+                ActionSpec("playPause", "Toggle play and pause on the active media session", emptyList(),
+                    """{"capability":"MEDIA_SESSION","action":"playPause"}""",
+                    """{"sent":true}""", handler = { p -> mediaTransport(p) }),
+                ActionSpec("next", "Skip to the next track", emptyList(),
+                    """{"capability":"MEDIA_SESSION","action":"next"}""",
+                    """{"sent":true}""", handler = { p -> mediaTransport(p) }),
+                ActionSpec("previous", "Go back to the previous track", emptyList(),
+                    """{"capability":"MEDIA_SESSION","action":"previous"}""",
+                    """{"sent":true}""", handler = { p -> mediaTransport(p) }),
+                ActionSpec("key", "Send a media key by name", listOf(
+                    ParamDoc("key", "string", true, "One of play, pause, playPause, next, previous, stop", "playPause")
+                ), """{"capability":"MEDIA_SESSION","action":"key","key":"next"}""",
+                    """{"sent":true,"key":"next"}""", handler = { p -> mediaTransport(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.AUDIO_STREAM, "Stream microphone audio", listOf(
+                ActionSpec("start", "Begin streaming raw microphone audio", listOf(
+                    ParamDoc("sampleRate", "integer", false, "Samples per second", "16000")
+                ), """{"capability":"AUDIO_STREAM","action":"start","sampleRate":16000}""",
+                    """{"streaming":true,"sampleRate":16000}""", handler = { p -> audioStream(p) }),
+                ActionSpec("stop", "Stop streaming", emptyList(),
+                    """{"capability":"AUDIO_STREAM","action":"stop"}""",
+                    """{"streaming":false}""", handler = { p -> audioStream(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.DOWNLOAD_MANAGER, "Download files over the network", listOf(
+                ActionSpec("enqueue", "Queue a download and return its id", listOf(
+                    ParamDoc("url", "string", true, "The http(s) URL to fetch", "https://example.com/file.zip"),
+                    ParamDoc("fileName", "string", false, "Name to save it under", "file.zip"),
+                    ParamDoc("description", "string", false, "Shown in the system download list", "Android Star")
+                ), """{"capability":"DOWNLOAD_MANAGER","action":"enqueue","url":"https://example.com/file.zip"}""",
+                    """{"id":4821}""", handler = { p -> downloadEnqueue(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.PACKAGE_INSTALLER, "Install an APK from storage", listOf(
+                ActionSpec("install", "Install an APK already on the device", listOf(
+                    ParamDoc("path", "string", true, "Absolute path to the .apk file", "/data/local/tmp/app.apk")
+                ), """{"capability":"PACKAGE_INSTALLER","action":"install","path":"/data/local/tmp/app.apk"}""",
+                    """{"sessionId":7}""", handler = { p -> packageInstall(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.NEARBY_DEVICES, "Read the Bluetooth picture", listOf(
+                ActionSpec("summary", "Paired and connected Bluetooth devices, with battery and health", emptyList(),
+                    """{"capability":"NEARBY_DEVICES","action":"summary"}""",
+                    """{"enabled":true,"paired":3,"connected":1,"devices":[{"name":"Headphones","address":"AA:BB:CC:DD:EE:FF","connected":true,"category":"audio","battery":72,"health":"ok","bondState":"bonded"}]}""",
+                    handler = { p -> bluetoothSummary(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.LOCATION, "Read the last known location", listOf(
+                ActionSpec("lastKnown", "The most recent fix the platform has seen", emptyList(),
+                    """{"capability":"LOCATION","action":"lastKnown"}""",
+                    """{"latitude":51.5074,"longitude":-0.1278,"accuracyMeters":12.0,"provider":"gps","timestamp":1752000000000}""",
+                    handler = { p -> locationLastKnown(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.GEOFENCE_ACTIVITY, "Watch for the device entering and leaving places", listOf(
+                ActionSpec("add", "Start watching a place", listOf(
+                    ParamDoc("id", "string", true, "Name for this geofence", "home"),
+                    ParamDoc("latitude", "number", true, "Latitude of the centre", "51.5074"),
+                    ParamDoc("longitude", "number", true, "Longitude of the centre", "-0.1278"),
+                    ParamDoc("radiusMeters", "number", false, "How far out counts as arriving", "150")
+                ), """{"capability":"GEOFENCE_ACTIVITY","action":"add","id":"home","latitude":51.5074,"longitude":-0.1278}""",
+                    """{"added":true,"id":"home","count":1}""", handler = { p -> geofenceAdd(p) }),
+                ActionSpec("remove", "Stop watching a place", listOf(
+                    ParamDoc("id", "string", true, "The geofence to remove", "home")
+                ), """{"capability":"GEOFENCE_ACTIVITY","action":"remove","id":"home"}""",
+                    """{"removed":true,"id":"home"}""", handler = { p -> geofenceRemove(p) }),
+                ActionSpec("check", "Which watched places a location falls inside", listOf(
+                    ParamDoc("latitude", "number", true, "Latitude to test", "51.5074"),
+                    ParamDoc("longitude", "number", true, "Longitude to test", "-0.1278")
+                ), """{"capability":"GEOFENCE_ACTIVITY","action":"check","latitude":51.5074,"longitude":-0.1278}""",
+                    """{"inside":["home"]}""", handler = { p -> geofenceCheck(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.HEALTH_CONNECT, "Activity sensing", listOf(
+                ActionSpec("startSteps", "Begin counting steps using the hardware step counter", emptyList(),
+                    """{"capability":"HEALTH_CONNECT","action":"startSteps"}""",
+                    """{"listening":true}""", handler = { p -> healthStartSteps(p) })
             )
         ),
         CapabilitySpec(
@@ -486,7 +739,425 @@ class CapabilityActions(
  * caller the clipboard is blank when in fact they were not allowed to look. A refusal answers 403
  * with what would lift it.
  */
-private fun clipboardRead(): ServerResponse {
+    // =====================================================================
+    // Wired capabilities
+    // =====================================================================
+
+    private fun alarmSet(p: JsonObject): ServerResponse {
+        val provider = provider<AlarmTimerCapabilityProvider>(CapabilityType.ALARM_TIMER)
+            ?: return unsupported(CapabilityType.ALARM_TIMER)
+        val seconds = p.int("seconds") ?: return badRequest("Missing 'seconds'")
+        if (seconds <= 0) return badRequest("'seconds' must be greater than zero")
+
+        val ok = provider.setTimer(seconds, p.string("message") ?: "Timer")
+        return if (ok) ServerResponse.json("""{"set":true,"seconds":$seconds}""")
+        else ServerResponse(409, "application/json", """{"error":"Could not start the timer"}""")
+    }
+
+    private fun audioVolumeGet(p: JsonObject): ServerResponse {
+        val provider = provider<AudioVolumeCapabilityProvider>(CapabilityType.AUDIO_VOLUME)
+            ?: return unsupported(CapabilityType.AUDIO_VOLUME)
+        val v = provider.getAudioVolumeStreams()
+        return ServerResponse.json(
+            buildJsonObject {
+                put("media", v.mediaVolumePercent)
+                put("ring", v.ringVolumePercent)
+                put("voice", v.voiceVolumePercent)
+                put("alarm", v.alarmVolumePercent)
+                put("ringerMode", v.ringerMode)
+            }.toString()
+        )
+    }
+
+    private fun audioVolumeSet(p: JsonObject): ServerResponse {
+        val provider = provider<AudioVolumeCapabilityProvider>(CapabilityType.AUDIO_VOLUME)
+            ?: return unsupported(CapabilityType.AUDIO_VOLUME)
+        val percent = p.int("percent") ?: return badRequest("Missing 'percent'")
+        if (percent !in 0..100) return badRequest("'percent' must be between 0 and 100")
+
+        provider.setMediaVolumePercent(percent)
+        return ServerResponse.json("""{"set":true,"percent":$percent}""")
+    }
+
+    private fun calendarUpcoming(p: JsonObject): ServerResponse {
+        val provider = provider<CalendarCapabilityProvider>(CapabilityType.CALENDAR)
+            ?: return unsupported(CapabilityType.CALENDAR)
+        val events = provider.getUpcomingEvents(p.int("limit") ?: 10)
+
+        return ServerResponse.json(
+            buildJsonObject {
+                put("count", events.size)
+                put("events", buildJsonArray {
+                    events.forEach { e ->
+                        add(
+                            buildJsonObject {
+                                put("id", e.id)
+                                put("title", e.title)
+                                put("start", e.startTime)
+                                put("end", e.endTime)
+                                e.description?.let { put("description", it) }
+                            }
+                        )
+                    }
+                })
+            }.toString()
+        )
+    }
+
+    private fun callPlace(p: JsonObject): ServerResponse {
+        val provider = provider<CallControlCapabilityProvider>(CapabilityType.CALL_CONTROL)
+            ?: return unsupported(CapabilityType.CALL_CONTROL)
+        val number = p.string("number") ?: return badRequest("Missing 'number'")
+
+        return if (provider.placeCall(number)) ServerResponse.json("""{"placing":true}""")
+        else ServerResponse(
+            409, "application/json",
+            """{"error":"Could not place the call","hint":"CALL_PHONE permission, or the dialler refused it"}"""
+        )
+    }
+
+    private fun callLogCount(p: JsonObject): ServerResponse {
+        val provider = provider<TelephonyCallLogCapabilityProvider>(CapabilityType.CALL_LOG)
+            ?: return unsupported(CapabilityType.CALL_LOG)
+        return ServerResponse.json("""{"count":${provider.getCallLogCount()}}""")
+    }
+
+    private fun clipboardBgWrite(p: JsonObject): ServerResponse {
+        val provider = provider<ClipboardBackgroundCapabilityProvider>(CapabilityType.CLIPBOARD_BACKGROUND)
+            ?: return unsupported(CapabilityType.CLIPBOARD_BACKGROUND)
+        val text = p.string("text") ?: return badRequest("Missing 'text'")
+        provider.setClipboard(text, p.string("label") ?: "Android Star")
+        return ServerResponse.json("""{"written":true}""")
+    }
+
+    private fun contactsCount(p: JsonObject): ServerResponse {
+        val provider = provider<ContactsAccountsCapabilityProvider>(CapabilityType.CONTACTS_ACCOUNTS)
+            ?: return unsupported(CapabilityType.CONTACTS_ACCOUNTS)
+        return ServerResponse.json("""{"contacts":${provider.getContactsCount()}}""")
+    }
+
+    private fun accountsCount(p: JsonObject): ServerResponse {
+        val provider = provider<ContactsAccountsCapabilityProvider>(CapabilityType.CONTACTS_ACCOUNTS)
+            ?: return unsupported(CapabilityType.CONTACTS_ACCOUNTS)
+        return ServerResponse.json("""{"accounts":${provider.getAccountsCount()}}""")
+    }
+
+    private fun passkeySupport(p: JsonObject): ServerResponse {
+        val provider = provider<CredentialManagerCapabilityProvider>(CapabilityType.CREDENTIAL_MANAGER)
+            ?: return unsupported(CapabilityType.CREDENTIAL_MANAGER)
+        return ServerResponse.json("""{"supported":${provider.getPasskeySupport()}}""")
+    }
+
+    private fun deviceAdminLock(p: JsonObject): ServerResponse {
+        val provider = provider<DeviceAdminCapabilityProvider>(CapabilityType.DEVICE_ADMIN)
+            ?: return unsupported(CapabilityType.DEVICE_ADMIN)
+        return if (provider.lockScreenNow()) ServerResponse.json("""{"locked":true}""")
+        else ServerResponse(
+            409, "application/json",
+            """{"error":"Could not lock the screen","hint":"Device administrator is not enabled on this device"}"""
+        )
+    }
+
+    private fun displayGet(p: JsonObject): ServerResponse {
+        val provider = provider<DisplayCapabilityProvider>(CapabilityType.DISPLAY)
+            ?: return unsupported(CapabilityType.DISPLAY)
+        val d = provider.getDisplayInfo()
+        return ServerResponse.json(
+            buildJsonObject {
+                put("brightnessPercent", d.brightnessPercent)
+                put("autoBrightness", d.isAutoBrightness)
+                put("displayState", d.displayState)
+                put("refreshRateHz", d.refreshRateHz)
+            }.toString()
+        )
+    }
+
+    private fun dndSet(p: JsonObject): ServerResponse {
+        val provider = provider<DoNotDisturbCapabilityProvider>(CapabilityType.DO_NOT_DISTURB)
+            ?: return unsupported(CapabilityType.DO_NOT_DISTURB)
+        val name = p.string("filter")?.lowercase() ?: return badRequest("Missing 'filter'")
+
+        // Named rather than numeric: an int straight into setInterruptionFilter is a trap for the
+        // caller, and the constants have shifted across Android versions.
+        val filter = when (name) {
+            "off", "all" -> android.app.NotificationManager.INTERRUPTION_FILTER_ALL
+            "priority" -> android.app.NotificationManager.INTERRUPTION_FILTER_PRIORITY
+            "none" -> android.app.NotificationManager.INTERRUPTION_FILTER_NONE
+            "alarms" -> android.app.NotificationManager.INTERRUPTION_FILTER_ALARMS
+            else -> return badRequest("'filter' must be one of off, priority, none, alarms")
+        }
+
+        return if (provider.setInterruptionFilter(filter)) {
+            ServerResponse.json("""{"set":true,"filter":"$name"}""")
+        } else {
+            ServerResponse(
+                403, "application/json",
+                """{"error":"Do Not Disturb access is not granted","hint":"Settings → Notifications → Do Not Disturb access"}"""
+            )
+        }
+    }
+
+    private fun simSlots(p: JsonObject): ServerResponse {
+        val provider = provider<SimSubscriptionCapabilityProvider>(CapabilityType.SIM_SUBSCRIPTION)
+            ?: return unsupported(CapabilityType.SIM_SUBSCRIPTION)
+        val slots = provider.getSimSlots()
+        return ServerResponse.json(
+            buildJsonObject {
+                put("count", slots.size)
+                put("slots", buildJsonArray {
+                    slots.forEach { s ->
+                        add(
+                            buildJsonObject {
+                                put("slotIndex", s.slotIndex)
+                                put("carrierName", s.carrierName)
+                                put("countryIso", s.countryIso)
+                                put("dataRoaming", s.isDataRoaming)
+                            }
+                        )
+                    }
+                })
+            }.toString()
+        )
+    }
+
+    private fun storageOverview(p: JsonObject): ServerResponse {
+        val provider = provider<StorageCapabilityProvider>(CapabilityType.STORAGE)
+            ?: return unsupported(CapabilityType.STORAGE)
+        val t = provider.getStorageTelemetry()
+        return ServerResponse.json(
+            buildJsonObject {
+                put("internalAvailableGb", t.internalAvailableGb)
+                put("internalTotalGb", t.internalTotalGb)
+                put("externalAvailableGb", t.externalAvailableGb)
+                put("externalTotalGb", t.externalTotalGb)
+                put("externalAvailable", t.isExternalStorageAvailable)
+            }.toString()
+        )
+    }
+
+    private fun usbList(p: JsonObject): ServerResponse {
+        val provider = provider<UsbCapabilityProvider>(CapabilityType.USB)
+            ?: return unsupported(CapabilityType.USB)
+        val devices = provider.getConnectedUsbDevices()
+        return ServerResponse.json(
+            buildJsonObject {
+                put("count", devices.size)
+                put("devices", buildJsonArray {
+                    devices.forEach { d ->
+                        add(
+                            buildJsonObject {
+                                put("name", d.deviceName)
+                                put("vendorId", d.vendorId)
+                                put("productId", d.productId)
+                                put("deviceClass", d.deviceClass)
+                            }
+                        )
+                    }
+                })
+            }.toString()
+        )
+    }
+
+    private fun nfcPairingRecord(p: JsonObject): ServerResponse {
+        val provider = provider<NfcCapabilityProvider>(CapabilityType.NFC)
+            ?: return unsupported(CapabilityType.NFC)
+        val peerId = p.string("peerId") ?: return badRequest("Missing 'peerId'")
+        val pin = p.string("pin") ?: return badRequest("Missing 'pin'")
+
+        val message = provider.createPairingRecord(peerId, pin)
+
+        return ServerResponse.json(
+            buildJsonObject {
+                put("recordCount", message.records.size)
+                put("bytes", message.toByteArray().size)
+            }.toString()
+        )
+    }
+
+    private fun mediaTransport(p: JsonObject): ServerResponse {
+        val provider = provider<MediaSessionCapabilityProvider>(CapabilityType.MEDIA_SESSION)
+            ?: return unsupported(CapabilityType.MEDIA_SESSION)
+
+        val action = p.string("action") ?: return badRequest("Missing 'action'")
+        val key = p.string("key")
+
+        when (action) {
+            "playPause" -> provider.playPause()
+            "next" -> provider.nextTrack()
+            "previous" -> provider.previousTrack()
+            "key" -> {
+                when (key?.lowercase()) {
+                    "play", "playpause" -> provider.playPause()
+                    "pause" -> provider.dispatchMediaKeyEvent(android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+                    "next" -> provider.nextTrack()
+                    "previous", "prev" -> provider.previousTrack()
+                    "stop" -> provider.dispatchMediaKeyEvent(android.view.KeyEvent.KEYCODE_MEDIA_STOP)
+                    else -> return badRequest(
+                        "'key' must be one of play, pause, playPause, next, previous, stop"
+                    )
+                }
+            }
+            else -> return badRequest("'action' must be playPause, next, previous or key")
+        }
+        return ServerResponse.json(
+            """{"sent":true${key?.let { ",\"key\":\"$it\"" } ?: ""}}"""
+        )
+    }
+
+    private fun audioStream(p: JsonObject): ServerResponse {
+        val provider = provider<AudioStreamCapabilityProvider>(CapabilityType.AUDIO_STREAM)
+            ?: return unsupported(CapabilityType.AUDIO_STREAM)
+
+        return when (p.string("action")) {
+            "start" -> {
+                val rate = p.int("sampleRate") ?: 16_000
+                if (rate !in 8_000..48_000) return badRequest("'sampleRate' must be 8000-48000")
+                provider.startCapture(rate)
+                ServerResponse.json("""{"streaming":true,"sampleRate":$rate}""")
+            }
+            "stop" -> {
+                provider.stopCapture()
+                ServerResponse.json("""{"streaming":false}""")
+            }
+            else -> badRequest("'action' must be start or stop")
+        }
+    }
+
+    private fun downloadEnqueue(p: JsonObject): ServerResponse {
+        val provider = provider<DownloadManagerCapabilityProvider>(CapabilityType.DOWNLOAD_MANAGER)
+            ?: return unsupported(CapabilityType.DOWNLOAD_MANAGER)
+        val url = p.string("url") ?: return badRequest("Missing 'url'")
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            return badRequest("'url' must be http or https")
+        }
+
+        val name = p.string("fileName") ?: url.substringAfterLast('/').ifBlank { "download.bin" }
+        val id = provider.enqueueDownload(url, name, p.string("description") ?: "Android Star")
+        return ServerResponse.json("""{"id":$id}""")
+    }
+
+    private fun packageInstall(p: JsonObject): ServerResponse {
+        val provider = provider<PackageInstallerCapabilityProvider>(CapabilityType.PACKAGE_INSTALLER)
+            ?: return unsupported(CapabilityType.PACKAGE_INSTALLER)
+        val path = p.string("path") ?: return badRequest("Missing 'path'")
+
+        val file = java.io.File(path)
+        if (!file.exists()) {
+            return badRequest("No such file: $path")
+        }
+
+        val sessionId = provider.installApk(file)
+        return if (sessionId >= 0) ServerResponse.json("""{"sessionId":$sessionId}""")
+        else ServerResponse(
+            409, "application/json",
+            """{"error":"Could not start the install session","hint":"Android requires user confirmation to install"}"""
+        )
+    }
+
+    private fun bluetoothSummary(p: JsonObject): ServerResponse {
+        val provider = provider<BluetoothCapabilityProvider>(CapabilityType.NEARBY_DEVICES)
+            ?: return unsupported(CapabilityType.NEARBY_DEVICES)
+        val s = provider.refreshDevices()
+
+        return ServerResponse.json(
+            buildJsonObject {
+                put("enabled", s.isEnabled)
+                put("paired", s.totalPairedDevices)
+                put("connected", s.connectedDevicesCount)
+                put("devices", buildJsonArray { s.devices.forEach { add(bluetoothJson(it)) } })
+            }.toString()
+        )
+    }
+
+    private fun bluetoothJson(d: BluetoothDeviceInfo) = buildJsonObject {
+        put("name", d.name)
+        put("address", d.address)
+        put("connected", d.isConnected)
+        put("category", d.deviceCategory)
+        put("battery", d.batteryPercentage)
+        put("health", d.healthStatus)
+        put("bondState", d.bondState)
+    }
+
+    private fun locationLastKnown(p: JsonObject): ServerResponse {
+        val provider = provider<LocationCapabilityProvider>(CapabilityType.LOCATION)
+            ?: return unsupported(CapabilityType.LOCATION)
+
+        // Nothing has arrived yet is a real and common answer; reporting it as a refusal would send
+        // the caller looking for a permission that is not the problem.
+        val loc: PlatformLocation? = provider.lastLocation.value
+            ?: return ServerResponse(
+                204, "application/json",
+                """{"available":false,"hint":"No fix has arrived yet; ask again once location is warm"}"""
+            )
+
+        return ServerResponse.json(locationJson(loc!!).toString())
+    }
+
+    private fun locationJson(l: PlatformLocation) = buildJsonObject {
+        put("available", true)
+        put("latitude", l.latitude)
+        put("longitude", l.longitude)
+        put("accuracyMeters", l.accuracyMeters)
+        put("provider", l.provider)
+        put("timestamp", l.timestamp)
+    }
+
+    private fun geofenceAdd(p: JsonObject): ServerResponse {
+        val provider = provider<GeofenceActivityCapabilityProvider>(CapabilityType.GEOFENCE_ACTIVITY)
+            ?: return unsupported(CapabilityType.GEOFENCE_ACTIVITY)
+        val id = p.string("id") ?: return badRequest("Missing 'id'")
+        val lat = p.double("latitude") ?: return badRequest("Missing 'latitude'")
+        val lon = p.double("longitude") ?: return badRequest("Missing 'longitude'")
+        val radius = p.double("radiusMeters") ?: 150.0
+        if (radius <= 0) return badRequest("'radiusMeters' must be greater than zero")
+
+        provider.registerGeofence(PlatformGeofence(id, lat, lon, radius.toFloat()))
+        return ServerResponse.json("""{"added":true,"id":"$id"}""")
+    }
+
+    private fun geofenceRemove(p: JsonObject): ServerResponse {
+        val provider = provider<GeofenceActivityCapabilityProvider>(CapabilityType.GEOFENCE_ACTIVITY)
+            ?: return unsupported(CapabilityType.GEOFENCE_ACTIVITY)
+        val id = p.string("id") ?: return badRequest("Missing 'id'")
+        provider.removeGeofence(id)
+        return ServerResponse.json("""{"removed":true,"id":"$id"}""")
+    }
+
+    private fun geofenceCheck(p: JsonObject): ServerResponse {
+        val provider = provider<GeofenceActivityCapabilityProvider>(CapabilityType.GEOFENCE_ACTIVITY)
+            ?: return unsupported(CapabilityType.GEOFENCE_ACTIVITY)
+        val lat = p.double("latitude") ?: return badRequest("Missing 'latitude'")
+        val lon = p.double("longitude") ?: return badRequest("Missing 'longitude'")
+
+        val results = provider.checkLocationAgainstGeofences(android.location.Location("api-check").apply {
+            latitude = lat
+            longitude = lon
+        })
+
+        return ServerResponse.json(
+            buildJsonObject {
+                put("inside", buildJsonArray { results.forEach { add(JsonPrimitive(it)) } })
+            }.toString()
+        )
+    }
+
+    private fun healthStartSteps(p: JsonObject): ServerResponse {
+        val provider = provider<HealthConnectCapabilityProvider>(CapabilityType.HEALTH_CONNECT)
+            ?: return unsupported(CapabilityType.HEALTH_CONNECT)
+        provider.startStepTracking()
+        return ServerResponse.json("""{"listening":true}""")
+    }
+
+    private fun shareText(p: JsonObject): ServerResponse {
+        val provider = provider<SharingCapabilityProvider>(CapabilityType.SHARING)
+            ?: return unsupported(CapabilityType.SHARING)
+        val text = p.string("text") ?: return badRequest("Missing 'text'")
+        provider.shareText(text, p.string("title") ?: "Share via Android Star")
+        return ServerResponse.json("""{"shared":true}""")
+    }
+
+    private fun clipboardRead(): ServerResponse {
         val provider = provider<ClipboardCapabilityProvider>(CapabilityType.CLIPBOARD)
             ?: return unsupported(CapabilityType.CLIPBOARD)
 
@@ -919,6 +1590,9 @@ private fun clipboardRead(): ServerResponse {
         (this[key] as? JsonPrimitive)?.content?.toBooleanStrictOrNull()
     private fun JsonObject.long(key: String): Long? =
         (this[key] as? JsonPrimitive)?.content?.toLongOrNull()
+    private fun JsonObject.double(key: String): Double? =
+        (this[key] as? JsonPrimitive)?.content?.toDoubleOrNull()
+
     private fun JsonObject.int(key: String): Int? =
         (this[key] as? JsonPrimitive)?.content?.toIntOrNull()
 }

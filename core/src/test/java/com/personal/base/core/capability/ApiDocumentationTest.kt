@@ -5,6 +5,7 @@ import com.personal.base.core.platform.NotificationActionContract
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 /**
  * The documentation convention, enforced.
@@ -87,9 +88,45 @@ class ApiDocumentationTest {
 
     @Test
     fun `capabilities with no implementation advertise nothing`() {
-        // Advertising an action a provider cannot perform would be a lie.
-        assertTrue(actions.actionsFor(CapabilityType.SIM_SUBSCRIPTION).isEmpty())
-        assertTrue(actions.actionsFor(CapabilityType.CALL_LOG).isEmpty())
+        // Advertising an action a provider cannot perform would be a lie. These have no provider at
+        // all, or a provider with nothing to call, so they must offer nothing.
+        listOf(
+            "BACKGROUND_WORK",     // no provider
+            "PHONE",               // no provider
+            "DOCUMENTS_PROVIDER",  // provider exists but has no callable behaviour
+            "KEYGUARD",
+            "NOTIFICATION_LISTENER",
+            "RESTRICTED_SHELL"
+        ).forEach { id ->
+            val type = CapabilityType.entries.first { it.name == id }
+            assertTrue(
+                "$id has no implementation and must advertise no actions",
+                actions.actionsFor(type).isEmpty()
+            )
+        }
+    }
+
+    @Test
+    fun `every advertised action names a provider the shell actually registers`() {
+        // An action pointing at an unregistered provider answers 409 forever, which is a promise
+        // the platform cannot keep. The real container is read rather than a list kept beside the
+        // code, because a list kept beside the code is exactly what goes stale.
+        val container = File("../app/src/main/java/com/personal/base/di/PlatformContainer.kt")
+        assertTrue("the container should be readable from here", container.exists())
+
+        val registered = Regex("""capabilityRegistry\.register\(\s*([A-Za-z]+)\(""")
+            .findAll(container.readText()).map { it.groupValues[1] }.toSet()
+
+        val source = File("src/main/java/com/personal/base/core/capability/CapabilityActions.kt")
+        val advertised = Regex("""provider<([A-Za-z]+)>\(""")
+            .findAll(source.readText()).map { it.groupValues[1] }.toSet()
+
+        val orphans = advertised - registered
+        assertTrue(
+            "these providers back advertised actions but are never registered: $orphans",
+            orphans.isEmpty()
+        )
+        assertTrue("the test should be finding real providers", advertised.size > 20)
     }
 
     @Test
