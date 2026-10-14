@@ -1,6 +1,7 @@
 package com.personal.base.ui.settings
 
 import android.widget.Toast
+import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -216,7 +217,8 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "Keeps the platform running after you leave the app, holding a " +
-                            "permanent notification so Android does not kill it. While it runs, " +
+                            "permanent notification so Android does not kill it, and keeps the CPU " +
+                            "awake so the socket still answers once the screen is off. While it runs, " +
                             "your apps stay reachable over the network on port " +
                             "${container.embeddedServer.port} and background work keeps happening " +
                             "with the screen off. Turn it off and your phone becomes unreachable " +
@@ -224,6 +226,38 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                // Android dozes an idle app regardless of the wake lock, so without this exemption
+                // the host goes quiet again shortly after the screen is off. Said plainly, because
+                // the symptom — "the server died" — points nowhere near this switch.
+                val ignoringOptimisations = container.wakeLockManager.isIgnoringBatteryOptimizations
+                if (bgStatus.isForegroundServiceRunning && !ignoringOptimisations) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "Android is still putting this app to sleep when the screen is off. " +
+                                "The phone may stop answering within a minute of the screen going " +
+                                "dark, even though the host says it is running.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = {
+                            context.startActivity(
+                                Intent(
+                                    android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                    android.net.Uri.parse("package:${context.packageName}")
+                                )
+                            )
+                        }) { Text("Allow background activity") }
+
+                        OutlinedButton(onClick = {
+                            context.startActivity(
+                                Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                            )
+                        }) { Text("Open list") }
+                    }
+                }
             }
         }
 

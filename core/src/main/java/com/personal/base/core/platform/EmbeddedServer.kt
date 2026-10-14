@@ -1,9 +1,11 @@
 package com.personal.base.core.platform
 
 import com.personal.base.core.logging.PlatformLogger
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -81,7 +83,19 @@ class EmbeddedServer(
     private val publicPaths: Set<String> = emptySet()
 ) {
 
-    private val scope = CoroutineScope(Dispatchers.IO + Job())
+    /**
+     * The server's scope.
+     *
+     * The exception handler matters more than it looks: an uncaught exception in a child coroutine
+     * cancels the whole scope, which would leave the server permanently dead — `start()` would
+     * launch into a cancelled scope and silently do nothing, so the phone could never come back
+     * without a restart. Catching here means a bad connection can never take the server down.
+     */
+    private val scope = CoroutineScope(
+        Dispatchers.IO + Job() + CoroutineExceptionHandler { _, e ->
+            logger.e("EmbeddedServer", "Unhandled server error: ${e.message}", e.stackTraceToString())
+        }
+    )
     private var serverSocket: ServerSocket? = null
     private var serverJob: kotlinx.coroutines.Job? = null
 
@@ -115,20 +129,55 @@ class EmbeddedServer(
 
     fun start() {
         if (_isRunning.value) return
-        serverJob = scope.launch {
-            try {
-                serverSocket = ServerSocket(port)
-                _isRunning.value = true
-                logger.i("EmbeddedServer", "Server listening on port $port (${routeHandlers.size} routes)")
+        // A previous attempt may have left a dead job behind. Without this, a server that failed to
+        // bind could never be restarted, because the stale job would make every retry a no-op.
+        serverJob?.cancel()
 
+        serverJob = scope.launch {
+            var attempt = 0
+            while (isActive) {
+                attempt++
+                try {
+                    serverSocket = ServerSocket(port)
+                    _isRunning.value = true
+                    logger.i(
+                        "EmbeddedServer",
+                        "Server listening on port $port (${routeHandlers.size} routes, attempt $attempt)"
+                    )
+                    break
+                } catch (e: Exception) {
+                    val reason = if (e is java.net.BindException) {
+                        "port $port is already in use"
+                    } else {
+                        e.message ?: e.javaClass.simpleName
+                    }
+                    logger.e("EmbeddedServer", "Could not listen on port $port: $reason", e.stackTraceToString())
+                    _isRunning.value = false
+                    if (attempt >= BIND_ATTEMPTS) {
+                        logger.e(
+                            "EmbeddedServer",
+                            "Giving up after $attempt attempts. The host stays up but nothing is " +
+                                "reachable until it is restarted."
+                        )
+                        return@launch
+                    }
+                    delay(BIND_RETRY_DELAY_MS)
+                }
+            }
+
+            // Closing the socket is how stop() ends this, so SocketException is the normal exit
+            // rather than a failure. It must be caught here: left unhandled it would propagate out
+            // of the coroutine, cancel the server's scope, and leave the server unable to ever
+            // start again.
+            try {
                 while (isActive) {
                     val client = serverSocket?.accept() ?: break
                     scope.launch { handleClient(client) }
                 }
+            } catch (e: java.net.SocketException) {
+                logger.i("EmbeddedServer", "Listening socket closed")
             } catch (e: Exception) {
-                if (isActive) {
-                    logger.e("EmbeddedServer", "Server socket error: ${e.message}", e.stackTraceToString())
-                }
+                logger.e("EmbeddedServer", "Accept loop failed: ${e.message}", e.stackTraceToString())
             } finally {
                 _isRunning.value = false
             }
@@ -189,7 +238,12 @@ class EmbeddedServer(
                 writer.print(response.body)
                 writer.flush()
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            // A dropped client is normal and not worth a line, but anything else is exactly the
+            // kind of failure that is invisible until someone reports the server as "dead".
+            if (e !is java.io.IOException && e !is java.net.SocketException) {
+                logger.e("EmbeddedServer", "Failed to serve ${socket.inetAddress}: ${e.message}", e.stackTraceToString())
+            }
         }
     }
 
@@ -216,5 +270,15 @@ class EmbeddedServer(
     companion object {
         /** The port the platform's network surface listens on. */
         const val DEFAULT_PORT = 8899
+
+        /**
+         * How hard to try before giving up on the socket.
+         *
+         * Retrying matters because the usual cause is another process holding the port during
+         * boot, which clears on its own. Giving up loudly matters because the alternative — a host
+         * that looks healthy while nothing is listening — is worse than a visible failure.
+         */
+        const val BIND_ATTEMPTS = 3
+        const val BIND_RETRY_DELAY_MS = 2_000L
     }
 }

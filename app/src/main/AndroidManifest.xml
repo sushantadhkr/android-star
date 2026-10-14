@@ -9,6 +9,14 @@
     <!-- Notifications & Background -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+
+    <!--
+      Requesting the battery-optimisation exemption. Without it Android dozes the always-on host
+      shortly after the screen is off and the server stops answering, whatever wake lock the
+      foreground service holds. The request is only ever made from an explicit button press in
+      Settings, never silently at startup.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />

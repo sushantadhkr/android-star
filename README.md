@@ -278,7 +278,30 @@ These must never break:
 
 ---
 
-## Security
+### Keeping the phone reachable
+
+A foreground service keeps the **process** alive. It does not keep the **CPU** running. Once the
+screen is off and the device goes idle, Android suspends the CPU, the listening socket survives, and
+nothing accepts or answers — which looks exactly like the server dying.
+
+So the always-on host does two things a plain foreground service does not:
+
+- **Holds a partial wake lock** for as long as it is switched on, released the moment you turn it
+  off. No timeout: a finite one would let the device fall asleep again with the host still on.
+- **Watches its own socket.** The watchdog is registered against the server's real health signal, so
+  a socket that closes is reopened instead of leaving the phone unreachable until you restart it by
+  hand.
+
+It also asks for the **battery-optimisation exemption**, because Android dozes an idle app
+regardless of any wake lock. Settings → Always-on Platform Host shows this when it is missing, and
+links to the grant. Without it the host will still go quiet shortly after the screen goes dark, and
+the symptom points nowhere near the setting that causes it.
+
+On Android 15+ the `dataSync` foreground service type carries a six-hour daily cap. Past that the
+system stops the host, and it becomes unreachable again — a limit worth knowing about before you
+rely on it.
+
+### Security
 
 - **Signed commands** — HMAC-SHA256 over the command fields, verified against the shared secret.
 - **Anti-replay window** — commands outside the TTL are rejected as expired or clock-drifted.

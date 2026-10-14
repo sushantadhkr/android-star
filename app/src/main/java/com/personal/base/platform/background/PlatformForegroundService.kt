@@ -102,7 +102,35 @@ class PlatformForegroundService : Service() {
                     server.start()
                     container.appManager.server = server
                     logger?.i("ForegroundService", "Hosting platform server on port ${server.port}")
+
+                    // Keep the CPU awake. A foreground service alone does not: Android suspends
+                    // the CPU once the device is idle, the socket survives, and nothing ever
+                    // answers a request again. Without this the host looks fine and the phone
+                    // stops responding within a minute of the screen going off.
+                    //
+                    // It costs battery, which is precisely why it belongs to the user's explicit
+                    // always-on switch and not to the app starting at all.
+                    container.wakeLockManager.acquireWakeLock()
+
+                    // The watchdog was built for exactly this and nothing had ever registered with
+                    // it, so it had been polling an empty map. If the socket ever closes, the phone
+                    // was unreachable until the host was restarted by hand.
+                    container.serviceWatchdog.registerService(
+                        name = "platform-server",
+                        healthCheck = { server.isRunning.value },
+                        onRecovery = {
+                            logger?.w("ForegroundService", "Server socket is down; reopening it")
+                            server.start()
+                        }
+                    )
                 }
+
+                logger?.i(
+                    "ForegroundService",
+                    "Battery optimisation exemption: " +
+                        (container?.wakeLockManager?.isIgnoringBatteryOptimizations ?: false) +
+                        ". Without it Android dozes the host far more aggressively."
+                )
 
                 // Periodic sync: App hooks, and plugin sync for anything still using the older path.
                 scope.launch {
@@ -163,6 +191,10 @@ class PlatformForegroundService : Service() {
         val container = (application as? PersonalBaseApplication)?.container ?: return
         container.appManager.server = null
         container.embeddedServer.stop()
+
+        // Released with the host. A wake lock that outlived the thing it was keeping alive would
+        // drain the battery of a device the user believes is switched off.
+        container.wakeLockManager.releaseWakeLock()
     }
 
     override fun onDestroy() {
