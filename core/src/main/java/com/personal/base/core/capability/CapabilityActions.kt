@@ -3,6 +3,7 @@ package com.personal.base.core.capability
 import com.personal.base.core.logging.PlatformLogger
 import com.personal.base.core.platform.ServerResponse
 import com.personal.base.platform.capabilities.BatteryPowerCapabilityProvider
+import com.personal.base.platform.capabilities.CameraMicCapabilityProvider
 import com.personal.base.platform.capabilities.ClipboardCapabilityProvider
 import com.personal.base.platform.capabilities.ConnectivityCapabilityProvider
 import com.personal.base.platform.capabilities.DeviceActionCapabilityProvider
@@ -41,6 +42,8 @@ class CapabilityActions(
             CapabilityType.NOTIFICATIONS -> notifications(action, payload)
             CapabilityType.CLIPBOARD -> clipboard(action, payload)
             CapabilityType.BATTERY_POWER -> battery(action)
+            CapabilityType.CAMERA -> camera(action, payload)
+            CapabilityType.MICROPHONE -> microphone(action, payload)
             CapabilityType.DEVICE_INFO -> deviceInfo()
             CapabilityType.SENSORS -> sensors()
             CapabilityType.CONNECTIVITY -> connectivity()
@@ -136,6 +139,82 @@ class CapabilityActions(
                 put("batteryHealth", state.batteryHealth)
             }.toString()
         )
+    }
+
+    private fun camera(action: String, payload: JsonObject): ServerResponse {
+        val provider = provider<CameraMicCapabilityProvider>(CapabilityType.CAMERA)
+            ?: return unsupported(CapabilityType.CAMERA)
+        val cameraId = payload.string("cameraId")
+        return when (action.lowercase()) {
+            "cameras", "list" -> ServerResponse.json(
+                buildJsonObject {
+                    put("cameras", provider.cameras().size)
+                    put(
+                        "ids",
+                        provider.cameras().joinToString(prefix = "[", postfix = "]") { "\"${it.id}\"" }
+                    )
+                }.toString()
+            )
+            "capture", "photo", "still" -> {
+                val file = provider.captureImage(cameraId)
+                    ?: return ServerResponse(
+                        500, "application/json",
+                        """{"error":"Capture failed","hint":"Check CAMERA permission and that no other app is using the camera"}"""
+                    )
+                ServerResponse.json(
+                    buildJsonObject {
+                        put("file", file.absolutePath)
+                        put("bytes", file.length())
+                    }.toString()
+                )
+            }
+            "start" -> {
+                val file = provider.startRecording(cameraId)
+                    ?: return ServerResponse(
+                        500, "application/json",
+                        """{"error":"Could not start recording"}"""
+                    )
+                ServerResponse.json(buildJsonObject { put("recording", file.absolutePath) }.toString())
+            }
+            "stop" -> {
+                val file = provider.stopRecording()
+                    ?: return ServerResponse(
+                        400, "application/json",
+                        """{"error":"Not recording"}"""
+                    )
+                ServerResponse.json(
+                    buildJsonObject {
+                        put("file", file.absolutePath)
+                        put("bytes", file.length())
+                    }.toString()
+                )
+            }
+            else -> unknownAction(action, listOf("cameras", "capture", "start", "stop"))
+        }
+    }
+
+    private fun microphone(action: String, payload: JsonObject): ServerResponse {
+        val provider = provider<CameraMicCapabilityProvider>(CapabilityType.MICROPHONE)
+            ?: return unsupported(CapabilityType.MICROPHONE)
+        return when (action.lowercase()) {
+            "record", "capture" -> {
+                val ms = payload.int("durationMs") ?: 2000
+                val file = provider.recordAudioToFile(ms)
+                    ?: return ServerResponse(
+                        500, "application/json",
+                        """{"error":"Recording failed","hint":"Check RECORD_AUDIO permission"}"""
+                    )
+                ServerResponse.json(
+                    buildJsonObject {
+                        put("file", file.absolutePath)
+                        put("bytes", file.length())
+                        put("durationMs", ms)
+                        put("format", "pcm_16bit_mono_16khz")
+                    }.toString()
+                )
+            }
+            else -> unknownAction(action, listOf("record"))
+        }
     }
 
     private fun deviceInfo(): ServerResponse {
@@ -253,6 +332,9 @@ class CapabilityActions(
     private fun JsonObject.long(key: String): Long? =
         (this[key] as? JsonPrimitive)?.content?.toLongOrNull()
 
+    private fun JsonObject.int(key: String): Int? =
+        (this[key] as? JsonPrimitive)?.content?.toIntOrNull()
+
     companion object {
         /**
          * The actions a capability genuinely supports, so the catalogue can advertise them and a
@@ -264,6 +346,8 @@ class CapabilityActions(
             CapabilityType.NOTIFICATIONS -> listOf("post")
             CapabilityType.CLIPBOARD -> listOf("read", "write")
             CapabilityType.BATTERY_POWER -> listOf("state")
+            CapabilityType.CAMERA -> listOf("cameras", "capture", "start", "stop")
+            CapabilityType.MICROPHONE -> listOf("record")
             CapabilityType.DEVICE_INFO -> listOf("get")
             CapabilityType.SENSORS -> listOf("get")
             CapabilityType.CONNECTIVITY -> listOf("get")

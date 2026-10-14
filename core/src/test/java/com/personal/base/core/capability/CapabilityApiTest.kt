@@ -138,9 +138,9 @@ class CapabilityApiTest {
     // ---- honesty about what actually works ----------------------------
 
     @Test
-    fun `actions are only advertised for capabilities that have them`() {
+    fun `camera now advertises real actions`() {
         // Advertising an action a provider cannot perform would be a lie.
-        assertTrue(CapabilityActions.actionsFor(CapabilityType.CAMERA).isEmpty())
+        assertTrue(CapabilityActions.actionsFor(CapabilityType.CAMERA).contains("capture"))
         assertTrue(CapabilityActions.actionsFor(CapabilityType.NOTIFICATIONS).contains("post"))
     }
 
