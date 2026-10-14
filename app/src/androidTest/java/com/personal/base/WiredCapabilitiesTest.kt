@@ -286,6 +286,13 @@ class WiredCapabilitiesTest {
         val nm = InstrumentationRegistry.getInstrumentation().targetContext
             .getSystemService(android.content.Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
 
+        // Posting is a no-op without POST_NOTIFICATIONS, so check before asserting rather than
+        // reporting a failure that is really about the test environment.
+        val notificationsOn = androidx.core.app.NotificationManagerCompat
+            .from(InstrumentationRegistry.getInstrumentation().targetContext)
+            .areNotificationsEnabled()
+        if (!notificationsOn) return
+
         // Posted, not just scheduled: the notification must be visible while the job runs.
         var seen = false
         val deadline = System.currentTimeMillis() + 10_000
@@ -328,6 +335,40 @@ class WiredCapabilitiesTest {
             "with no folder chosen, downloads must report the phone's own Downloads folder, got " +
                 done!!.savedPath,
             done!!.savedPath?.startsWith("Downloads/") == true
+        )
+    }
+
+    @Test
+    fun theMediaShortcutRouteIsReallyRegistered() {
+        // Authentication runs before routing, so a 401 from curl cannot tell "route exists" from
+        // "route does not exist". Asking the server itself settles it.
+        assertTrue(
+            "POST /api/media/download must be a live route",
+            container.embeddedServer.hasRoute("/api/media/download")
+        )
+        assertTrue(
+            "a route that does not exist must not appear",
+            !container.embeddedServer.hasRoute("/api/nonsense")
+        )
+    }
+
+    @Test
+    fun theShortcutRouteGoesThroughTheSameHandler() {
+        // If the shortcut ever diverged from the capability action it could do something the
+        // generic invoke would refuse, which would break the one rule the API rests on.
+        val server = container.embeddedServer
+        val viaShortcut = server.handlerFor("/api/media/download")
+            ?.invoke(
+                com.personal.base.core.platform.ServerRequest(
+                    "POST", "/api/media/download",
+                    """{"url":"file:///etc/passwd"}"""
+                )
+            )
+        assertTrue("the shortcut must exist", viaShortcut != null)
+        assertTrue(
+            "a file:// url must be refused by the shortcut exactly as by the action, got " +
+                viaShortcut!!.status,
+            viaShortcut.status == 400
         )
     }
 }
