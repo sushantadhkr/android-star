@@ -387,6 +387,44 @@ control for each of its parameters, that a capability without actions invents no
 capability name cannot inject HTML, and that the served asset cannot drift from the source.
 Regenerate the fixture with `./gradlew :core:testDebugUnitTest --tests '*DocsFixtureTest'`.
 
+### Downloading media to the phone
+
+One endpoint, for the thing people ask for most often:
+
+```bash
+curl -X POST http://PHONE:8899/api/media/download \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"url":"https://example.com/clip.mp4","fileName":"clip.mp4"}'
+```
+
+```json
+{"id":"dl_m0abc_7","status":"queued","percent":0,"fileName":"clip.mp4"}
+```
+
+It returns straight away. The same job can be driven and watched through the capability:
+
+```bash
+-d '{"capability":"DOWNLOAD_MANAGER","action":"status","id":"dl_m0abc_7"}'
+-d '{"capability":"DOWNLOAD_MANAGER","action":"list"}'
+-d '{"capability":"DOWNLOAD_MANAGER","action":"cancel","id":"dl_m0abc_7"}'
+```
+
+Files are written through `MediaStore`, so they land in **Downloads/Android Star** and appear in
+Gallery for images and video. That is deliberate: the system `DownloadManager` writes through a
+destination API deprecated since scoped storage, and reports neither progress nor where the file
+ended up.
+
+The shortcut route and the capability action call the **same handler through the same gate**, so
+the route can never do something the generic invoke would refuse.
+
+Two deliberate limits:
+
+- **http and https only.** `file://`, `content://` and intent schemes are refused — otherwise the
+  endpoint becomes a way to read the device's own storage.
+- **Filenames are flattened.** A URL can carry `../`, a null byte, or a 300-character segment,
+  which would write outside the folder it was given. The name the API reports is the name it
+  actually uses, so it never claims a file went somewhere it did not.
+
 ### The clipboard can be written but not read
 
 Android 10 restricted clipboard **reads**. Only two roles may call `getPrimaryClip()`: the app

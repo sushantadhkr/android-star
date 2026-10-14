@@ -14,6 +14,7 @@ import com.personal.base.platform.capabilities.FileServerCapabilityProvider
 import com.personal.base.platform.capabilities.GeofenceActivityCapabilityProvider
 import com.personal.base.platform.capabilities.HealthConnectCapabilityProvider
 import com.personal.base.platform.capabilities.LocationCapabilityProvider
+import com.personal.base.platform.capabilities.MediaDownloadCapabilityProvider
 import com.personal.base.platform.capabilities.MediaSessionCapabilityProvider
 import com.personal.base.platform.capabilities.NearbyChatCapabilityProvider
 import com.personal.base.platform.capabilities.PeerAuthDecision
@@ -360,12 +361,32 @@ class CapabilityActions(
         ),
         CapabilitySpec(
             CapabilityType.DOWNLOAD_MANAGER, "Download files over the network", listOf(
-                ActionSpec("enqueue", "Queue a download and return its id", listOf(
-                    ParamDoc("url", "string", true, "The http(s) URL to fetch", "https://example.com/file.zip"),
-                    ParamDoc("fileName", "string", false, "Name to save it under", "file.zip"),
-                    ParamDoc("description", "string", false, "Shown in the system download list", "Android Star")
-                ), """{"capability":"DOWNLOAD_MANAGER","action":"enqueue","url":"https://example.com/file.zip"}""",
-                    """{"id":4821}""", handler = { p -> downloadEnqueue(p) })
+                ActionSpec(
+                    "fetch",
+                    "Download media to the Downloads folder, in the background",
+                    listOf(
+                        ParamDoc("url", "string", true, "The http(s) URL to fetch", "https://example.com/clip.mp4"),
+                        ParamDoc("fileName", "string", false, "Name to save it under. Taken from the URL if omitted", "clip.mp4"),
+                        ParamDoc("mediaType", "string", false, "MIME type, when the server does not say", "video/mp4")
+                    ),
+                    """{"capability":"DOWNLOAD_MANAGER","action":"fetch","url":"https://example.com/clip.mp4"}""",
+                    """{"id":"dl_m0abc_0","status":"queued","percent":0,"fileName":"clip.mp4"}""",
+                    handler = { p -> mediaFetch(p) }
+                ),
+                ActionSpec("status", "How far a download has got", listOf(
+                    ParamDoc("id", "string", true, "The download id returned by fetch", "dl_m0abc_0")
+                ), """{"capability":"DOWNLOAD_MANAGER","action":"status","id":"dl_m0abc_0"}""",
+                    """{"id":"dl_m0abc_0","status":"downloading","percent":42,"bytesDownloaded":5242880,"totalBytes":12582912}""",
+                    handler = { p -> mediaStatus(p) }),
+                ActionSpec("list", "Downloads this platform has been asked to fetch, newest first", listOf(
+                    ParamDoc("limit", "integer", false, "How many to return", "10")
+                ), """{"capability":"DOWNLOAD_MANAGER","action":"list","limit":5}""",
+                    """{"count":1,"downloads":[{"id":"dl_m0abc_0","status":"complete","percent":100,"fileName":"clip.mp4","savedPath":"Downloads/Android Star/clip.mp4"}]}""",
+                    handler = { p -> mediaList(p) }),
+                ActionSpec("cancel", "Stop a download", listOf(
+                    ParamDoc("id", "string", true, "The download id to cancel", "dl_m0abc_0")
+                ), """{"capability":"DOWNLOAD_MANAGER","action":"cancel","id":"dl_m0abc_0"}""",
+                    """{"cancelled":true}""", handler = { p -> mediaCancel(p) })
             )
         ),
         CapabilitySpec(
@@ -1257,17 +1278,80 @@ class CapabilityActions(
         }
     }
 
-    private fun downloadEnqueue(p: JsonObject): ServerResponse {
-        val provider = provider<DownloadManagerCapabilityProvider>(CapabilityType.DOWNLOAD_MANAGER)
+    /**
+     * Downloads media to the Downloads folder.
+     *
+     * Returns as soon as the job is queued. An HTTP request that blocked until a large file
+     * finished would tie up the server and give the caller no way to stop it.
+     */
+    fun mediaFetch(p: JsonObject): ServerResponse {
+        val provider = provider<MediaDownloadCapabilityProvider>(CapabilityType.DOWNLOAD_MANAGER)
             ?: return unsupported(CapabilityType.DOWNLOAD_MANAGER)
         val url = p.string("url") ?: return badRequest("Missing 'url'")
-        if (!url.startsWith("http://") && !url.startsWith("https://")) {
-            return badRequest("'url' must be http or https")
-        }
 
-        val name = p.string("fileName") ?: url.substringAfterLast('/').ifBlank { "download.bin" }
-        val id = provider.enqueueDownload(url, name, p.string("description") ?: "Android Star")
-        return ServerResponse.json("""{"id":$id}""")
+        val download = provider.start(url, p.string("fileName"), p.string("mediaType"))
+            ?: return badRequest(
+                "'url' must be http or https — file, content and intent schemes are refused"
+            )
+
+        return ServerResponse.json(
+            buildJsonObject {
+                put("id", download.id)
+                put("status", download.status)
+                put("percent", download.percent)
+                put("fileName", download.fileName)
+            }.toString()
+        )
+    }
+
+    fun mediaStatus(p: JsonObject): ServerResponse {
+        val provider = provider<MediaDownloadCapabilityProvider>(CapabilityType.DOWNLOAD_MANAGER)
+            ?: return unsupported(CapabilityType.DOWNLOAD_MANAGER)
+        val id = p.string("id") ?: return badRequest("Missing 'id'")
+
+        val d = provider.get(id) ?: return ServerResponse(
+            404, "application/json",
+            """{"error":"No such download: $id","hint":"It may have been cleared; nothing is persisted across a restart"}"""
+        )
+        return ServerResponse.json(downloadJson(d).toString())
+    }
+
+    fun mediaList(p: JsonObject): ServerResponse {
+        val provider = provider<MediaDownloadCapabilityProvider>(CapabilityType.DOWNLOAD_MANAGER)
+            ?: return unsupported(CapabilityType.DOWNLOAD_MANAGER)
+        val downloads = provider.recent(p.int("limit") ?: 10)
+
+        return ServerResponse.json(
+            buildJsonObject {
+                put("count", downloads.size)
+                put("downloads", buildJsonArray { downloads.forEach { add(downloadJson(it)) } })
+            }.toString()
+        )
+    }
+
+    fun mediaCancel(p: JsonObject): ServerResponse {
+        val provider = provider<MediaDownloadCapabilityProvider>(CapabilityType.DOWNLOAD_MANAGER)
+            ?: return unsupported(CapabilityType.DOWNLOAD_MANAGER)
+        val id = p.string("id") ?: return badRequest("Missing 'id'")
+
+        return if (provider.cancel(id)) ServerResponse.json("""{"cancelled":true}""")
+        else ServerResponse(
+            404, "application/json",
+            """{"error":"Nothing to cancel for $id","hint":"It may have already finished"}"""
+        )
+    }
+
+    private fun downloadJson(d: com.personal.base.platform.capabilities.MediaDownload) = buildJsonObject {
+        put("id", d.id)
+        put("url", d.url)
+        put("status", d.status)
+        put("percent", d.percent)
+        put("bytesDownloaded", d.bytesDownloaded)
+        put("totalBytes", d.totalBytes)
+        put("fileName", d.fileName)
+        d.savedPath?.let { put("savedPath", it) }
+        d.error?.let { put("error", it) }
+        put("startedAt", d.startedAt)
     }
 
     private fun packageInstall(p: JsonObject): ServerResponse {

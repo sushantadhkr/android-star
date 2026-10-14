@@ -62,6 +62,12 @@ class CapabilityApi(
 
         // Per-capability switch, and the master switch.
         server.registerRoute("/api/capabilities/toggle") { handleToggle(it) }
+
+        // The one shortcut: fetch a URL straight into the Downloads folder. It is a convenience
+        // over DOWNLOAD_MANAGER.fetch for the one call someone makes most often, and it goes
+        // through exactly the same gate and handler — so it can never do something the generic
+        // invoke would refuse.
+        server.registerRoute("/api/media/download") { handleMediaDownload(it) }
     }
 
     /**
@@ -88,6 +94,10 @@ class CapabilityApi(
                 endpoint("/api/capabilities/invoke", "POST", "Run a capability action")
                 endpoint("/api/capabilities/toggle", "POST", "Switch a capability, or all of them")
                 endpoint("/api/apps/<id>/<path>", "GET", "Endpoints published by Apps that serve")
+                endpoint(
+                    "/api/media/download", "POST",
+                    "Download a URL into the Downloads folder. Returns an id; poll DOWNLOAD_MANAGER.status"
+                )
             })
 
             put("invokeBody", buildJsonObject {
@@ -252,6 +262,31 @@ class CapabilityApi(
 
     private fun handleList(): ServerResponse =
         ServerResponse.json(json.encodeToString(catalogueSnapshot()))
+
+    /**
+     * `POST /api/media/download` — fetch a URL into the Downloads folder.
+     *
+     * A shortcut for the common case, not a second way in: it resolves the same provider and calls
+     * the same handler the capability action uses, so the gate, the scheme check and the error
+     * shape are identical whichever route a caller reaches for.
+     */
+    fun handleMediaDownload(request: ServerRequest): ServerResponse {
+        val payload = runCatching { json.parseToJsonElement(request.body) }.getOrNull() as? JsonObject
+            ?: return ServerResponse(
+                400, "application/json",
+                """{"error":"Expected a JSON body","example":{"url":"https://example.com/clip.mp4"}}"""
+            )
+
+        return actions.invoke(
+            CapabilityType.DOWNLOAD_MANAGER,
+            "fetch",
+            buildJsonObject {
+                payload["url"]?.let { put("url", it) }
+                payload["fileName"]?.let { put("fileName", it) }
+                payload["mediaType"]?.let { put("mediaType", it) }
+            }
+        )
+    }
 
     private fun handleToggle(request: ServerRequest): ServerResponse {
         val payload = runCatching { json.parseToJsonElement(request.body) }.getOrNull()

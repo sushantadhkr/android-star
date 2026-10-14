@@ -111,6 +111,7 @@ import com.personal.base.platform.capabilities.InputMethodCapabilityProvider
 import com.personal.base.platform.capabilities.InstalledAppsCapabilityProvider
 import com.personal.base.platform.capabilities.KeyguardCapabilityProvider
 import com.personal.base.platform.capabilities.LocationCapabilityProvider
+import com.personal.base.platform.capabilities.MediaDownloadCapabilityProvider
 import com.personal.base.platform.capabilities.MediaLibraryCapabilityProvider
 import com.personal.base.platform.capabilities.MediaSessionCapabilityProvider
 import com.personal.base.platform.capabilities.MediaStreamEncoderCapabilityProvider
@@ -344,6 +345,9 @@ class PlatformContainer(val context: Context) {
         capabilityRegistry.register(HealthConnectCapabilityProvider(context, logger))
         capabilityRegistry.register(DeviceAdminCapabilityProvider(context, logger))
         capabilityRegistry.register(DownloadManagerCapabilityProvider(context, logger))
+        // Replaces the system DownloadManager for anything the API drives, so the file lands in
+        // Downloads through MediaStore and its progress and destination can actually be reported.
+        capabilityRegistry.register(MediaDownloadCapabilityProvider(context, logger))
         capabilityRegistry.register(VpnCapabilityProvider(context, logger))
         capabilityRegistry.register(GeofenceActivityCapabilityProvider(context, logger))
         capabilityRegistry.register(NetworkUsageCapabilityProvider(context, logger))

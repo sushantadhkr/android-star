@@ -7,6 +7,8 @@ import com.personal.base.core.capability.CapabilityType
 import com.personal.base.core.capability.PlatformCapabilityRegistry
 import com.personal.base.core.logging.PlatformLogger
 import com.personal.base.di.PlatformContainer
+import com.personal.base.platform.capabilities.MediaDownload
+import com.personal.base.platform.capabilities.MediaDownloadCapabilityProvider
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -26,13 +28,14 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class WiredCapabilitiesTest {
 
+    private lateinit var container: PlatformContainer
     private lateinit var registry: PlatformCapabilityRegistry
     private lateinit var actions: CapabilityActions
 
     @Before
     fun setUp() {
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
-        val container = PlatformContainer(ctx)
+        container = PlatformContainer(ctx)
         // Registration happens in the container's bootstrap, so without this every action answers
         // 409 and the test would prove nothing about the handlers.
         container.initialize()
@@ -211,5 +214,63 @@ class WiredCapabilitiesTest {
             "SFTP has no daemon behind it, so it must not advertise a start action",
             actions.actionsFor(CapabilityType.SFTP_SERVER).isEmpty()
         )
+    }
+
+    @Test
+    fun mediaDownloadsToTheDownloadsFolder() {
+        // A real file, fetched over HTTP, that must end up in Downloads.
+        val url = "https://example.com"
+        ok("DOWNLOAD_MANAGER", "fetch", "url" to url, "fileName" to "probe-download.md")
+        ok("DOWNLOAD_MANAGER", "list")
+
+        // Poll rather than assume: the download is asynchronous by design.
+        val provider = container.capabilityRegistry.getProviderByClass(MediaDownloadCapabilityProvider::class.java)
+        assertTrue("the media download provider must be registered; registry has " +
+            container.capabilityRegistry.getAllStatuses().size + " statuses", provider != null)
+
+        val id = provider!!.history.value.last().id
+        var done: MediaDownload? = null
+        val deadline = System.currentTimeMillis() + 30_000
+        while (System.currentTimeMillis() < deadline) {
+            val d = provider.get(id)
+            if (d != null && d.status in listOf("complete", "failed")) { done = d; break }
+            Thread.sleep(250)
+        }
+
+        assertTrue("the download never finished", done != null)
+        assertTrue("the download failed: ${done!!.error}", done!!.status == "complete")
+        assertTrue("nothing was written", done!!.bytesDownloaded > 0)
+        assertTrue(
+            "the file must be reported as living in the Downloads folder, got " + done!!.savedPath,
+            done!!.savedPath?.startsWith("Downloads/") == true
+        )
+    }
+
+    @Test
+    fun aNonHttpUrlIsRefused() {
+        val response = actions.invoke(
+            CapabilityType.DOWNLOAD_MANAGER,
+            "fetch",
+            JsonObject(mapOf(
+                "capability" to JsonPrimitive("DOWNLOAD_MANAGER"),
+                "action" to JsonPrimitive("fetch"),
+                "url" to JsonPrimitive("file:///etc/passwd")
+            ))
+        )
+        assertTrue("a file:// url must be refused", response.status == 400)
+    }
+
+    @Test
+    fun aTraversingFileNameCannotEscapeTheFolder() {
+        val provider = container.capabilityRegistry.getProviderByClass(MediaDownloadCapabilityProvider::class.java)
+        assertTrue("the media download provider must be registered; registry has " +
+            container.capabilityRegistry.getAllStatuses().size + " statuses", provider != null)
+        // Whatever comes back must not contain a path separator or a parent reference.
+        val name = provider!!.start(
+            "https://example.invalid/x.mp4",
+            "../../../etc/passwd",
+            null
+        )!!.fileName
+        assertTrue("a traversing name must be flattened, got '$name'", !name.contains("..") && !name.contains('/'))
     }
 }
