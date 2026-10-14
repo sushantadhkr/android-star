@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="run_diagnostics"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_foreground"
+        android:shortcutShortLabel="@string/shortcut_diagnostics"
+        android:shortcutLongLabel="@string/shortcut_diagnostics_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.personal.base"
+            android:targetClass="com.personal.base.MainActivity"
+            android:data="personalbase://command?plugin=system-diagnostics&amp;action=run" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="trigger_sync"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_foreground"
+        android:shortcutShortLabel="@string/shortcut_sync"
+        android:shortcutLongLabel="@string/shortcut_sync_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.personal.base"
+            android:targetClass="com.personal.base.MainActivity"
+            android:data="personalbase://command?action=sync" />
+    </shortcut>
+</shortcuts>

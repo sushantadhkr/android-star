@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Android Personal Base Platform</title>
+<style>
+  :root{
+    --bg:#0b1120; --card:#111a2e; --card2:#0d1524; --line:#1e2a44;
+    --txt:#e6edf7; --mut:#8fa3bf; --dim:#5f6f8a;
+    --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; --info:#38bdf8; --acc:#a78bfa; --pink:#f472b6;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--txt);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:26px}
+  .wrap{max-width:1200px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+  header{background:linear-gradient(135deg,#16213c,#0e1729);border:1px solid var(--line);border-radius:16px;padding:28px}
+  header h1{font-size:27px;color:var(--info);letter-spacing:-.3px}
+  header p{color:var(--mut);margin-top:8px;max-width:76ch}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+  .chip{font-size:12px;padding:5px 12px;border-radius:20px;border:1px solid var(--line);background:var(--card2);color:var(--mut)}
+  .chip b{color:var(--txt)}
+  h2{font-size:13px;letter-spacing:.6px;text-transform:uppercase;color:var(--dim);margin-bottom:10px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:20px}
+  .card.hl{border-color:#2b3c60}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px}
+  pre{background:#080d17;padding:14px;border-radius:9px;font-family:var(--mono);font-size:12.5px;
+      color:#9fc6ef;overflow-x:auto;border:1px solid #172033;line-height:1.55}
+  code{font-family:var(--mono);font-size:12.5px;color:#a5c9f5}
+  .callout{border-left:3px solid var(--info);background:rgba(56,189,248,.055);border-radius:6px;padding:12px 15px;font-size:13.5px;color:var(--mut)}
+  .callout b{color:var(--txt)}
+  .callout.warn{border-color:var(--warn);background:rgba(245,158,11,.06)}
+  .callout.bad{border-color:var(--bad);background:rgba(239,68,68,.06)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.5px;padding:7px 9px;border-bottom:1px solid var(--line)}
+  td{padding:9px;border-bottom:1px solid #16203a;vertical-align:top}
+  td:first-child{font-weight:600;white-space:nowrap}
+  ul{list-style:none;font-size:13.5px;color:var(--mut)}
+  li{padding:5px 0 5px 20px;position:relative}
+  li:before{content:"•";position:absolute;left:3px;color:var(--info)}
+  .terms{display:grid;gap:12px}
+  .term{border:1px solid var(--line);border-radius:10px;padding:14px;background:var(--card2)}
+  .term .n{font-weight:700;font-size:14px;color:var(--acc)}
+  .term .d{font-size:13px;color:var(--mut);margin-top:4px}
+  .term .m{font-size:11px;margin-top:8px;display:inline-block;padding:3px 9px;border-radius:12px;background:rgba(167,139,250,.14);color:var(--acc)}
+  .term.pf .n{color:var(--pink)} .term.pf .m{background:rgba(244,114,182,.14);color:var(--pink)}
+  .term.pl .n{color:var(--ok)} .term.pl .m{background:rgba(34,197,94,.14);color:var(--ok)}
+  .tree{font-family:var(--mono);font-size:12.5px;line-height:1.75;color:var(--mut);white-space:pre;overflow-x:auto}
+  .tree .d{color:var(--info)} .tree .a{color:var(--acc)} .tree .c{color:#f472b6} .tree .f{color:#8fa3bf}
+  .flow{display:flex;align-items:stretch;gap:9px;flex-wrap:wrap}
+  .node{flex:1;min-width:112px;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:12px;text-align:center}
+  .node .t{font-weight:700;font-size:12.5px} .node .s{font-size:11px;color:var(--mut);margin-top:3px}
+  .arr{display:flex;align-items:center;color:var(--dim);font-size:17px}
+  .bar{display:flex;height:9px;border-radius:5px;overflow:hidden;background:#16233d}
+  .bar i{display:block;height:100%}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--dim);margin-top:9px}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+  footer{color:var(--dim);font-size:12px;text-align:center;padding-top:4px}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:11px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:15px;text-align:center}
+  .kpi .n{font-size:26px;font-weight:700}
+  .kpi .l{font-size:10.5px;color:var(--mut);margin-top:3px;text-transform:uppercase;letter-spacing:.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Android Personal Base Platform</h1>
+  <p>A base Android app you <b style="color:#e6edf7">extend forever</b>. When you need something new — a frontend for your backend, a webcam server, a stock management system — you build it as an <b style="color:#a78bfa">App</b> on this base instead of starting over. The platform already provides capabilities, transport, storage, security and a UI kit, so each App writes only what is genuinely its own.</p>
+  <div class="chips">
+    <span class="chip">Kotlin + <b>Compose</b></span>
+    <span class="chip">minSdk <b>24</b></span>
+    <span class="chip">compileSdk <b>36</b></span>
+    <span class="chip">Modules <b>:app</b> · <b>:core</b></span>
+    <span class="chip">Server port <b>8899</b></span>
+  </div>
+</header>
+
+<div class="kpis">
+  <div class="kpi"><div class="n info">60</div><div class="l">Capabilities</div></div>
+  <div class="kpi"><div class="n acc">141</div><div class="l">Core files</div></div>
+  <div class="kpi"><div class="n ok">2</div><div class="l">Apps</div></div>
+  <div class="kpi"><div class="n warn">7</div><div class="l">Test files</div></div>
+  <div class="kpi"><div class="n" style="color:#f472b6">10</div><div class="l">Invariants</div></div>
+</div>
+
+<!-- ============ VOCABULARY ============ -->
+<div class="card hl">
+  <h2>Vocabulary — three terms, no others</h2>
+  <p style="color:var(--mut);font-size:13.5px;margin-bottom:14px">This distinction governs everything. There is no "plugin" category and no fourth kind of thing.</p>
+  <div class="terms">
+    <div class="term">
+      <div class="n">Platform App</div>
+      <div class="d">The whole application: shell, navigation, page structure, core library. The container for everything.</div>
+      <div class="m">Frozen — features are never added here</div>
+    </div>
+    <div class="term pf">
+      <div class="n">Platform Feature</div>
+      <div class="d">A capability of the platform itself — the Capabilities API, the security lock. Built directly on the platform.</div>
+      <div class="m">Pinned · toggle only · never removable</div>
+    </div>
+    <div class="term pl">
+      <div class="n">App</div>
+      <div class="d">A specific thing you build — a webcam server, a backend client, a stock management system.</div>
+      <div class="m">Extensible forever · any size</div>
+    </div>
+  </div>
+  <div class="callout" style="margin-top:14px">
+    <b>The One Rule —</b> we never write code at the platform level. The only code we add is
+    <b>extend a core capability to its full capability</b>. Apps then use those capabilities however they want.
+    This is what keeps the base expandable without forking.
+  </div>
+</div>
+
+<!-- ============ INSTANCE RULES ============ -->
+<div class="card">
+  <h2>Two kinds of things, with opposite instance rules</h2>
+  <div class="grid">
+    <div>
+      <h2 style="color:var(--acc)">Apps — one instance per App</h2>
+      <ul>
+        <li>Gated by the user's toggle</li>
+        <li>Own state, own lifecycle, own UI</li>
+        <li>Switching one off must not affect another</li>
+      </ul>
+    </div>
+    <div>
+      <h2 style="color:var(--info)">Capabilities — one shared instance</h2>
+      <ul>
+        <li>A capability <em>is</em> the device service</li>
+        <li>One camera, one microphone, one manager</li>
+        <li>Every App shares it; none owns a copy</li>
+      </ul>
+    </div>
+  </div>
+  <pre style="margin-top:14px">WRONG   App A → own notification manager + port
+        App B → own notification manager + port      (duplicate services contending for one)
+
+RIGHT   ┌─ NotificationManager  (single platform instance)
+        │   ├─ channel for App A     ← App A posts here
+        │   ├─ channel for App B     ← App B posts here
+        │   └─ channel for App C     ← App C posts here</pre>
+  <div class="callout" style="margin-top:12px">
+    The <b>manager is the shared singleton; the channel is the per-App slot.</b>
+    Same for hardware: the camera capability manages the single camera; a webcam App consumes it.
+  </div>
+</div>
+
+<!-- ============ PAGES ============ -->
+<div class="card">
+  <h2>The pages — Apps are the top layer</h2>
+  <table>
+    <tr><th>Page</th><th>Purpose</th><th>Rules</th></tr>
+    <tr><td style="color:var(--info)">Dashboard</td><td>Cards and Actions contributed by Apps</td>
+        <td><b>Starts empty and clean.</b> Only two kinds: Card and Action. User hides and reorders.</td></tr>
+    <tr><td style="color:var(--acc)">Apps</td><td>The list of all Apps</td>
+        <td>Search, filter, reorder. <b>Every App appears here</b> with a mandatory on/off toggle.</td></tr>
+    <tr><td style="color:var(--warn)">Logs</td><td>Platform-wide log stream</td>
+        <td>A <b>one-way sink.</b> Every App's logs land here. Hiding is not possible.</td></tr>
+    <tr><td style="color:var(--ok)">Settings</td><td>Platform and per-App configuration</td>
+        <td>Platform and App settings are distinct. Filter at the top. Reached from the ⋮ menu.</td></tr>
+  </table>
+  <div class="callout" style="margin-top:12px">There is <b>no top-level Capabilities page</b> — capabilities are reached from Settings.</div>
+</div>
+
+<!-- ============ WRITING AN APP ============ -->
+<div class="card hl">
+  <h2>Writing an App</h2>
+  <p style="color:var(--mut);font-size:13.5px;margin-bottom:12px">
+    Annotate a class. The registry is generated at build time, so <b style="color:#e6edf7">no shell file is ever edited</b>.
+  </p>
+  <pre>@PlatformAppDefinition(id = "hello", name = "Hello", order = 20)
+class HelloApp : PlatformApp {
+
+    override val id = "hello"
+    override val name = "Hello"
+    override val icon = Icons.Default.WavingHand
+    override val description = "A minimal App demonstrating the contract."
+    override val version = "1.0"
+
+    // State exists only while the user has this App switched on.
+    private var greetings = 0
+
+    // Declare what you contribute. Everything here is optional.
+    override val contribution = AppContribution(
+        dashboardCard    = { scope -> GreetingCard(scope) },
+        dashboardActions = listOf(
+            DashboardAction(id = "greet", label = "Say hello", onInvoke = { greetings++ })
+        ),
+        settingsSection  = { scope -> /* your settings UI */ }
+    )
+
+    // Your own full screen, opened by tapping your card.
+    @Composable
+    override fun AppContent(scope: AppScope, onBack: () -> Unit) { /* … */ }
+}</pre>
+  <div class="callout" style="margin-top:12px">
+    That is the whole integration. The App now appears on the Apps page with its toggle,
+    its card renders on the dashboard, and its logs flow to the Logs page.
+  </div>
+
+  <div class="flow" style="margin-top:16px">
+    <div class="node"><div class="t">annotated App file</div><div class="s">@PlatformAppDefinition</div></div>
+    <div class="arr">→</div>
+    <div class="node"><div class="t">build step</div><div class="s">registry generated</div></div>
+    <div class="arr">→</div>
+    <div class="node"><div class="t">platform reads it</div><div class="s">at startup</div></div>
+    <div class="arr">→</div>
+    <div class="node"><div class="t">user toggles ON</div><div class="s">one instance created</div></div>
+  </div>
+</div>
+
+<!-- ============ CONTRIBUTIONS ============ -->
+<div class="grid">
+  <div class="card">
+    <h2>What an App may contribute</h2>
+    <table>
+      <tr><th>Surface</th><th>Where it appears</th></tr>
+      <tr><td>Dashboard</td><td>a Card, an Action, both, or nothing</td></tr>
+      <tr><td>Settings</td><td>a settings section, or nothing</td></tr>
+      <tr><td>Own screen</td><td>opened by tapping its card</td></tr>
+      <tr><td>Server routes</td><td>served to the network</td></tr>
+      <tr><td>Logs</td><td>always flows to the Logs page</td></tr>
+    </table>
+    <div class="callout" style="margin-top:12px">
+      <b>Apps are never forced</b> to use the dashboard or settings. Headless Apps are normal —
+      sync, relays, watchers — they simply have no card.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Exposing a capability as a server</h2>
+    <pre>class WebcamApp : PlatformApp,
+                  CapabilityServingApp {
+
+    override fun httpPayload(): String =
+        """{"streaming":true,"clients":$clients}"""
+
+    override val servePath: String get() = "camera"
+}</pre>
+    <div class="callout" style="margin-top:12px">
+      The route is bound to the App's <b>live instance</b>, so a stopped App serves nothing.
+    </div>
+  </div>
+</div>
+
+<!-- ============ LIFECYCLE ============ -->
+<div class="card">
+  <h2>App lifecycle and the safety toggle</h2>
+  <div class="grid">
+    <div>
+      <ul>
+        <li>The <b>user</b> holds sole control — nothing can force an App on</li>
+        <li>Toggle appears on the App's entry in the <b>Apps</b> page</li>
+        <li><b>Off → inert.</b> No instance, nothing executes, state cleared — a full teardown</li>
+        <li><b>On → instance created</b>, it runs, contributes what it declared</li>
+        <li>The platform <b>remembers toggle state</b>; it survives restarts</li>
+        <li>When off, the <b>card stays but reads as disabled</b></li>
+      </ul>
+      <div class="callout warn" style="margin-top:10px">
+        <b>Rationale:</b> the user must always be able to completely stop any App on the device.
+      </div>
+    </div>
+    <div>
+      <h2 style="color:var(--acc)">One instance, many views</h2>
+      <pre>user toggles App ON → one instance
+                        ├─ dashboard card       (a view onto it)
+                        ├─ the App's own screen (a view onto it)
+                        └─ settings section     (a view onto it)</pre>
+      <div class="callout" style="margin-top:10px">
+        Never two instances. The card and the full screen read the <b>same live state</b> — this is
+        what makes the abstraction real rather than nominal.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ PINNED ============ -->
+<div class="card">
+  <h2>Pinned platform surfaces</h2>
+  <p style="color:var(--mut);font-size:13.5px;margin-bottom:12px">Fixed, toggle-only, cannot be moved or hidden.</p>
+  <div class="grid">
+    <div class="callout">
+      <b>Capabilities API</b> — one surface exposing every device capability, with a master on/off
+      and per-capability on/off. Every capability is <b>always listed</b>; anything unusable is
+      greyed out with the reason shown, never omitted. Also served at <code>/api/capabilities</code>.
+    </div>
+    <div class="callout">
+      <b>Security lock</b> — biometric unlock with a user-configurable inactivity policy, from
+      immediate to one hour. The lock sits <b>ahead of every App surface</b>; no App toggle can
+      bypass it.
+    </div>
+  </div>
+</div>
+
+<!-- ============ FILE STRUCTURE ============ -->
+<div class="card hl">
+  <h2>File structure</h2>
+  <div class="bar">
+    <i style="width:46%;background:#38bdf8"></i>
+    <i style="width:38%;background:#a78bfa"></i>
+    <i style="width:10%;background:#22c55e"></i>
+    <i style="width:6%;background:#f59e0b"></i>
+  </div>
+  <div class="legend">
+    <span><i style="background:#38bdf8"></i>:core library</span>
+    <span><i style="background:#a78bfa"></i>Apps</span>
+    <span><i style="background:#22c55e"></i>shell/UI</span>
+    <span><i style="background:#f59e0b"></i>build config</span>
+  </div>
+
+  <div class="grid" style="margin-top:16px">
+    <div>
+      <div class="tree"><span class="d">:core/</span>                          <span class="f">library — no features</span>
+├── core/
+│   ├── app/            <span class="f">PlatformApp, AppManager,</span>
+│   │                   <span class="f">AppRegistration, ToggleStore,</span>
+│   │                   <span class="f">DashboardComposer, AppScope</span>
+│   ├── capability/     <span class="f">CapabilityType, Registry,</span>
+│   │                   <span class="f">Gate, Catalogue, CapabilityApi</span>
+│   ├── command/        <span class="f">RemoteCommand, CommandValidator</span>
+│   ├── config/         <span class="f">ConfigRepository</span>
+│   ├── logging/        <span class="f">PlatformLogger</span>
+│   ├── platform/       <span class="f">EmbeddedServer, EventBus,</span>
+│   │                   <span class="f">AuditTrail, Auth…</span>
+│   ├── plugin/         <span class="f">PlatformContext facade</span>
+│   ├── runtime/        <span class="f">Scheduler, persistence, watchers</span>
+│   └── security/       <span class="f">IdleLockPolicy, DeviceLockGate</span>
+└── platform/
+    ├── capabilities/   <span class="c">60 capability providers</span>
+    └── permissions/    <span class="f">PlatformPermissionManager</span></div>
+    </div>
+    <div>
+      <div class="tree"><span class="d">:app/</span>                           <span class="f">shell — frozen</span>
+├── apps/               <span class="a">← Apps live here, additive</span>
+│   ├── diagnostics/    <span class="f">DeviceDiagnosticsApp</span>
+│   └── hello/          <span class="f">HelloApp</span>
+├── di/                 <span class="f">PlatformContainer</span>
+├── shell/              <span class="f">TileService, SystemReceiver</span>
+├── platform/           <span class="f">SyncWorker, ForegroundService</span>
+├── ui/                 <span class="f">Dashboard, Apps, Logs, Settings,</span>
+│   │                   <span class="f">Capabilities, Onboarding, Lock</span>
+├── receiver/           <span class="f">BootReceiver</span>
+└── theme/              <span class="f">Color, Type</span>
+
+<span class="d">buildSrc/</span>                       <span class="f">build logic</span>
+└── GenerateAppRegistryTask  <span class="f">scans sources for</span>
+                              <span class="f">@PlatformAppDefinition</span>
+
+<span class="d">settings.gradle.kts</span>            <span class="f">which modules exist</span>
+<span class="d">gradle/libs.versions.toml</span>       <span class="f">dependency versions</span>
+<span class="d">release.jks</span>                     <span class="f">release signing key</span></div>
+    </div>
+  </div>
+
+  <div class="callout" style="margin-top:14px">
+    The dependency runs <b>one way</b>: <code>:app</code> depends on <code>:core</code>, never the reverse.
+    A <code>:core</code> reference to shell code is a <b style="color:var(--bad)">compile error</b>.
+  </div>
+</div>
+
+<!-- ============ INVARIANTS ============ -->
+<div class="card">
+  <h2>Invariants — these must never break</h2>
+  <div class="grid">
+    <div><ul>
+      <li><b>No feature code on the platform.</b> Apps live in Apps; capabilities are completed in core.</li>
+      <li><b>One instance per enabled App.</b> Disabled → no instance, no execution, state cleared.</li>
+      <li><b>Capabilities are shared</b>, never duplicated per App.</li>
+      <li><b>Logs are a compulsory one-way sink.</b></li>
+      <li><b>Every App appears on the Apps page</b> with a working toggle the user alone controls.</li>
+    </ul></div>
+    <div><ul>
+      <li><b>The Dashboard starts empty</b>, and the user controls hiding and ordering.</li>
+      <li><b>Apps are not forced</b> to use the dashboard or the settings.</li>
+      <li><b>Adding an App never requires editing the shell.</b></li>
+      <li><b>Platform settings and App settings are distinct.</b></li>
+      <li><b>An App's size is unconstrained.</b></li>
+    </ul></div>
+  </div>
+</div>
+
+<!-- ============ SECURITY + BUILD ============ -->
+<div class="grid">
+  <div class="card">
+    <h2>Security</h2>
+    <ul>
+      <li><b>Signed commands</b> — HMAC-SHA256 over the command fields</li>
+      <li><b>Anti-replay window</b> — commands outside the TTL are rejected</li>
+      <li><b>RBAC</b> — <code>GUEST</code>, <code>AUTHENTICATED</code>, <code>ADMIN</code> gate sensitive hardware</li>
+      <li><b>Safe facade</b> — Apps reach capabilities via <code>PlatformContext</code>, never raw Android APIs</li>
+    </ul>
+    <div class="callout bad" style="margin-top:12px">
+      The embedded server currently runs <b>without authentication</b>. Treat it as a development
+      surface — do not expose it to an untrusted network.
+    </div>
+  </div>
+  <div class="card">
+    <h2>Building</h2>
+    <p style="color:var(--mut);font-size:13px;margin-bottom:8px">Requires JDK 17 and Android SDK 36.</p>
+    <pre>./gradlew :app:assembleDebug        # debug APK
+./gradlew test                     # all unit tests
+./gradlew :core:testDebugUnitTest  # core only</pre>
+    <ul style="margin-top:12px">
+      <li>APK: <code>app/build/outputs/apk/debug/</code></li>
+      <li>Server: port <b>8899</b></li>
+      <li>Capabilities API: <code>/api/capabilities</code></li>
+    </ul>
+  </div>
+</div>
+
+<footer>android-surface · generated from README.md</footer>
+</div>
+</body>
+</html>

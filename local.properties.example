@@ -1,0 +1,26 @@
+# Template for local, non-committed build configuration.
+#
+# Copy to local.properties and fill in. local.properties is gitignored and must never be
+# committed — it holds signing secrets.
+#
+#   cp local.properties.example local.properties
+#
+# The Android SDK location is also read from this file by the Android Gradle Plugin.
+# Signing values are read by :app; they may instead be supplied as environment variables
+# of the same names, which is usually preferable on CI.
+
+# --- Android SDK -----------------------------------------------------------
+sdk.dir=/path/to/Android/sdk
+
+# --- Release signing -------------------------------------------------------
+# Paths are resolved relative to the repository root.
+# Keep the .jks file itself out of git and store it somewhere safe.
+RELEASE_STORE_FILE=release.jks
+RELEASE_STORE_PASSWORD=
+RELEASE_KEY_ALIAS=
+RELEASE_KEY_PASSWORD=
+
+# --- Optional: defaults for any App ---------------------------------------
+# Shown on the Apps page and used when an App does not declare its own.
+DEFAULT_AUTH_TOKEN=sk_live_personal_default_key
+DEFAULT_AUTH_SECRET_HMAC=base_secret_hmac_256

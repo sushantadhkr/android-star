@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Android Star</string>
+    <string name="shortcut_diagnostics">Diagnostics</string>
+    <string name="shortcut_diagnostics_long">Run System Diagnostics</string>
+    <string name="shortcut_sync">Sync</string>
+    <string name="shortcut_sync_long">Trigger Platform Background Sync</string>
+</resources>

@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Primary 4-Pointed Star Halo / Outer Geometry -->
+    <path
+        android:pathData="M54,18 C55.2,38 70,52.8 90,54 C70,55.2 55.2,70 54,90 C52.8,70 38,55.2 18,54 C38,52.8 52.8,38 54,18 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="54"
+                android:startY="18"
+                android:endX="54"
+                android:endY="90"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#00F0FF" />
+                <item android:offset="0.5" android:color="#3B82F6" />
+                <item android:offset="1.0" android:color="#6366F1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Top-Left Facet: High-Gloss Brilliant Reflection -->
+    <path
+        android:pathData="M54,22 C54.8,38 66,49.2 82,50 L54,54 Z"
+        android:fillColor="#80FFFFFF" />
+
+    <!-- Bottom-Left Facet: Cyan Inner Glow -->
+    <path
+        android:pathData="M26,54 C42,52.8 53.2,42 54,26 L54,54 Z"
+        android:fillColor="#40E0F2FE" />
+
+    <!-- Secondary Diagonal Micro Star Rays -->
+    <path
+        android:pathData="M54,34 C55.5,44.5 63.5,52.5 74,54 C63.5,55.5 55.5,63.5 54,74 C52.5,63.5 44.5,55.5 34,54 C44.5,52.5 52.5,44.5 54,34 Z"
+        android:fillColor="#E0F2FE" />
+
+    <!-- Center Gem Diamond Facets -->
+    <!-- Top Half -->
+    <path
+        android:pathData="M54,44 L64,54 L54,54 Z"
+        android:fillColor="#FFFFFF" />
+    <path
+        android:pathData="M54,44 L44,54 L54,54 Z"
+        android:fillColor="#BAE6FD" />
+    <!-- Bottom Half -->
+    <path
+        android:pathData="M54,64 L64,54 L54,54 Z"
+        android:fillColor="#7DD3FC" />
+    <path
+        android:pathData="M54,64 L44,54 L54,54 Z"
+        android:fillColor="#38BDF8" />
+
+    <!-- Center Pure White Core Spark -->
+    <path
+        android:pathData="M54,49 L59,54 L54,59 L49,54 Z"
+        android:fillColor="#FFFFFF" />
+
+    <!-- Four Perimeter Orbital Nodes (Platform Node Satellites) -->
+    <!-- North Node -->
+    <path
+        android:pathData="M54,12m-2.5,0a2.5,2.5 0,1 1,5 0a2.5,2.5 0,1 1,-5 0"
+        android:fillColor="#00F0FF" />
+    <!-- East Node -->
+    <path
+        android:pathData="M96,54m-2.5,0a2.5,2.5 0,1 1,5 0a2.5,2.5 0,1 1,-5 0"
+        android:fillColor="#38BDF8" />
+    <!-- South Node -->
+    <path
+        android:pathData="M54,96m-2.5,0a2.5,2.5 0,1 1,5 0a2.5,2.5 0,1 1,-5 0"
+        android:fillColor="#818CF8" />
+    <!-- West Node -->
+    <path
+        android:pathData="M12,54m-2.5,0a2.5,2.5 0,1 1,5 0a2.5,2.5 0,1 1,-5 0"
+        android:fillColor="#38BDF8" />
+</vector>

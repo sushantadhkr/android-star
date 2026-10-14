@@ -1,0 +1,24 @@
+*.iml
+.gradle
+/local.properties
+local.properties
+/.idea
+.DS_Store
+/build
+app/build
+/captures
+.externalNativeBuild
+.cxx
+*.apk
+*.aab
+
+# Signing material — never committed. Losing a release key means you can no longer
+# ship updates to devices that already have the app installed.
+*.jks
+*.keystore
+keystore.properties
+
+# Module build outputs (see Phase 1 split)
+core/build
+buildSrc/build
+buildSrc/.gradle

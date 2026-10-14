@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Star Silhouette for Android 13+ Material You Themed Icons -->
+    <path
+        android:pathData="M54,18 C55.2,38 70,52.8 90,54 C70,55.2 55.2,70 54,90 C52.8,70 38,55.2 18,54 C38,52.8 52.8,38 54,18 Z"
+        android:fillColor="#FFFFFFFF" />
+    <!-- Satellites -->
+    <path
+        android:pathData="M54,12m-2.5,0a2.5,2.5 0,1 1,5 0a2.5,2.5 0,1 1,-5 0"
+        android:fillColor="#FFFFFFFF" />
+    <path
+        android:pathData="M96,54m-2.5,0a2.5,2.5 0,1 1,5 0a2.5,2.5 0,1 1,-5 0"
+        android:fillColor="#FFFFFFFF" />
+    <path
+        android:pathData="M54,96m-2.5,0a2.5,2.5 0,1 1,5 0a2.5,2.5 0,1 1,-5 0"
+        android:fillColor="#FFFFFFFF" />
+    <path
+        android:pathData="M12,54m-2.5,0a2.5,2.5 0,1 1,5 0a2.5,2.5 0,1 1,-5 0"
+        android:fillColor="#FFFFFFFF" />
+</vector>
