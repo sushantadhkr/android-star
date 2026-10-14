@@ -9,7 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
-import com.personal.base.theme.PersonalBaseTheme
+import com.personal.base.core.ui.theme.PersonalBaseTheme
 import com.personal.base.ui.MainPlatformScreen
 
 class MainActivity : ComponentActivity() {

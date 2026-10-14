@@ -54,18 +54,28 @@ context.postNotification("Title", "Body")
 
 ## 5. Follow the UI kit
 
-The platform supplies the design system. Use it so your App matches everything else:
+The design system lives in **core**, so an App in any module gets it for free.
 
-- **Theme:** `PersonalBaseTheme` — Material 3 with dynamic colour. Inherit; never define your own
-  palette, text style, or shapes.
-- **Colour:** only theme tokens — `MaterialTheme.colorScheme.*`. Never a literal `Color(0x...)`.
-  Hardcoded colours break dark mode and dynamic colour.
-- **Type:** only `MaterialTheme.typography.*`. Never a raw `fontSize`.
-- **Spacing:** the platform uses a consistent rhythm; follow the surrounding code rather than
-  inventing a new scale.
-- **Icons:** from `androidx.compose.material.icons`.
-- **Components:** Material 3 components (`Card`, `OutlinedCard`, `Switch`, `Button`…). They already
-  match the theme.
+**Import from `com.personal.base.core.ui.theme`:**
+
+| Use | From |
+|---|---|
+| Theme | `PersonalBaseTheme` — Material 3 with dynamic colour |
+| Card | `PlatformCard(title, subtitle) { … }` |
+| Section heading | `PlatformSectionTitle("…")` |
+| Explanatory text | `PlatformHint("…")` |
+| Labelled switch row | `PlatformSwitchRow(title, description, checked) { … }` |
+| Spacing rhythm | `PlatformSpacing.small / medium / large` |
+
+Rules:
+
+- **Never a literal colour.** Use `MaterialTheme.colorScheme.*`. `Color(0xFF6200EE)` breaks dark
+  mode and dynamic colour.
+- **Never a raw font size.** Use `MaterialTheme.typography.*`.
+- **Never define your own palette, text style, or shapes.**
+- Icons come from `androidx.compose.material.icons`.
+- Prefer the kit components over hand-rolled `Card` + `Column` + `Text` stacks; they encode the
+  platform's spacing and styling rules.
 
 ### Do not repeat the page title
 
@@ -77,7 +87,7 @@ duplicated text.
 Text("My App", style = MaterialTheme.typography.titleMedium)
 
 // Right — the app bar says it already
-Card { /* content */ }
+PlatformCard { /* content */ }
 ```
 
 The same applies to a back button: the app bar provides one.
@@ -180,4 +190,6 @@ class WebcamApp : PlatformApp, CapabilityServingApp {
 | Use a device capability | `context.getCapabilityByClass(...)` |
 | Add a non-tab page | Add to `OverlayDestination` |
 | Serve a capability | Implement `CapabilityServingApp` |
-| Match the platform look | Material 3 + `MaterialTheme` tokens only |
+| Match the platform look | `PlatformCard`, `PlatformHint`, `MaterialTheme` tokens |
+| Add spacing | `PlatformSpacing.small / medium / large` |
+| Show a labelled switch | `PlatformSwitchRow { checked = it }` |

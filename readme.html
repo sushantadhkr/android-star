@@ -326,7 +326,8 @@ class HelloApp : PlatformApp {
 │   │                   <span class="f">AuditTrail, Auth…</span>
 │   ├── plugin/         <span class="f">PlatformContext facade</span>
 │   ├── runtime/        <span class="f">Scheduler, persistence, watchers</span>
-│   └── security/       <span class="f">IdleLockPolicy, DeviceLockGate</span>
+│   ├── security/       <span class="f">IdleLockPolicy, DeviceLockGate</span>
+│   └── ui/theme/       <span class="f">PersonalBaseTheme + UI kit</span>
 └── platform/
     ├── capabilities/   <span class="c">60 capability providers</span>
     └── permissions/    <span class="f">PlatformPermissionManager</span></div>
@@ -342,7 +343,6 @@ class HelloApp : PlatformApp {
 ├── ui/                 <span class="f">Dashboard, Apps, Logs, Settings,</span>
 │   │                   <span class="f">Capabilities, Onboarding, Lock</span>
 ├── receiver/           <span class="f">BootReceiver</span>
-└── theme/              <span class="f">Color, Type</span>
 
 <span class="d">buildSrc/</span>                       <span class="f">build logic</span>
 └── GenerateAppRegistryTask  <span class="f">scans sources for</span>
