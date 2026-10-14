@@ -114,6 +114,9 @@ fun CapabilitiesScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
+        // The network surface: where this data comes from, and how to call it from a script.
+        ApiReferenceCard()
+
         // Pinned Platform surface: the master switch governs every capability at once.
         OutlinedCard(modifier = Modifier.fillMaxWidth()) {
             Row(

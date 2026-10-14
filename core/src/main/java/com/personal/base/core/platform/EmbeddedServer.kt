@@ -21,7 +21,7 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class EmbeddedServer(
     private val logger: PlatformLogger,
-    val port: Int = 8899
+    val port: Int = DEFAULT_PORT
 ) {
     private val scope = CoroutineScope(Dispatchers.IO + Job())
     private var serverSocket: ServerSocket? = null
@@ -105,5 +105,10 @@ class EmbeddedServer(
             _isRunning.value = false
             logger.i("EmbeddedServer", "Server stopped.")
         } catch (_: Exception) {}
+    }
+
+    companion object {
+        /** The port the platform's network surface listens on. */
+        const val DEFAULT_PORT = 8899
     }
 }

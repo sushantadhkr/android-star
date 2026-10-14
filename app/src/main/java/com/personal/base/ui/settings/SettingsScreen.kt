@@ -197,7 +197,11 @@ fun SettingsScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Enabled by default. Keeps the Android Star platform alive for real-time sensor processing, peer mesh networks, and automations.",
+                    text = "A foreground service is an Android component that keeps running " +
+                            "when you leave the app, holding a permanent notification so the system " +
+                            "does not kill it. This one wakes the platform every 30 seconds to run " +
+                            "periodic App sync. Turn it off and background work only happens when " +
+                            "you open the app.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
