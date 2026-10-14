@@ -23,6 +23,18 @@ class MyApp : PlatformApp { ... }
 - The registry is generated at build time. **Never hand-edit a registry, never edit the shell.**
 - An App may be one file or a large system. Put related files in a folder next to the annotated one.
 
+### Nothing to install
+
+An App is code you write, not something you install. The platform and every App compile into **one
+APK** (`com.personal.base`). You install that once; each new App is folded into the next build.
+
+```
+apps/  ──build──►  app-release.apk  ──install──►  phone
+```
+
+There is no per-App install step, and Apps are not downloaded or loaded at runtime. Adding an App
+means rebuilding.
+
 ## 2. Implement the contract
 
 | Member | Required | Notes |

@@ -96,11 +96,11 @@ There is **no top-level Capabilities page** — capabilities are reached from Se
 Annotate a class. The registry is generated at build time, so **no shell file is ever edited**.
 
 ```kotlin
-@PlatformAppDefinition(id = "hello", name = "Hello", order = 20)
-class HelloApp : PlatformApp {
+@PlatformAppDefinition(id = "my-app", name = "My App", order = 20)
+class MyApp : PlatformApp {
 
-    override val id = "hello"
-    override val name = "Hello"
+    override val id = "my-app"
+    override val name = "My App"
     override val icon = Icons.Default.WavingHand
     override val description = "A minimal App demonstrating the contract."
     override val version = "1.0"
@@ -232,6 +232,32 @@ buildSrc          generates the App registry from @PlatformAppDefinition declara
 
 Dependencies run one way: `:app` depends on `:core` and `:apps`, and `:apps` depends only on
 `:core`. A `:core` or `:apps` reference to shell code is a **compile error**.
+
+### Why Apps get their own module
+
+The split makes the central rule mechanical instead of conventional. When Apps lived inside the
+shell module, an App could import platform UI and still compile — the "never write platform code"
+rule depended on everyone remembering it. Now `:apps` declares only `:core`, so reaching for the
+shell is a build failure rather than a review comment.
+
+It also means editing an App does not recompile the shell, Apps can be tested in isolation, and
+deleting an App is provably clean because no shell file can reference it.
+
+### One installable app, however many Apps you write
+
+An **App** here is a feature you write, not software you install. Everything — the platform and
+every App — compiles into a single package:
+
+```
+applicationId = "com.personal.base"
+└── one APK: platform + all Apps
+```
+
+You install that once. Every new App is folded into the next build; there is nothing to install per
+App, and Apps are not downloaded or loaded at runtime.
+
+The corollary: adding an App requires a rebuild. Shipping Apps that install independently at
+runtime would be a different, much larger capability.
 
 ---
 

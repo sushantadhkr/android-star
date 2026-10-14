@@ -170,11 +170,11 @@ RIGHT   ┌─ NotificationManager  (single platform instance)
   <p style="color:var(--mut);font-size:13.5px;margin-bottom:12px">
     Annotate a class. The registry is generated at build time, so <b style="color:#e6edf7">no shell file is ever edited</b>.
   </p>
-  <pre>@PlatformAppDefinition(id = "hello", name = "Hello", order = 20)
-class HelloApp : PlatformApp {
+  <pre>@PlatformAppDefinition(id = "my-app", name = "My App", order = 20)
+class MyApp : PlatformApp {
 
-    override val id = "hello"
-    override val name = "Hello"
+    override val id = "my-app"
+    override val name = "My App"
     override val icon = Icons.Default.WavingHand
     override val description = "A minimal App demonstrating the contract."
     override val version = "1.0"
@@ -305,8 +305,8 @@ class HelloApp : PlatformApp {
   </div>
   <div class="legend">
     <span><i style="background:#38bdf8"></i>:core library</span>
-    <span><i style="background:#a78bfa"></i>Apps</span>
-    <span><i style="background:#22c55e"></i>shell/UI</span>
+    <span><i style="background:#a78bfa"></i>:apps — your Apps</span>
+    <span><i style="background:#22c55e"></i>:app shell/UI</span>
     <span><i style="background:#f59e0b"></i>build config</span>
   </div>
 
@@ -333,30 +333,54 @@ class HelloApp : PlatformApp {
     └── permissions/    <span class="f">PlatformPermissionManager</span></div>
     </div>
     <div>
-      <div class="tree"><span class="d">:app/</span>                           <span class="f">shell — frozen</span>
-├── apps/               <span class="a">← Apps live here, additive</span>
-│   ├── diagnostics/    <span class="f">DeviceDiagnosticsApp</span>
-│   └── hello/          <span class="f">HelloApp</span>
+      <div class="tree"><span class="d">:apps/</span>                          <span class="a">your Apps — depends on :core only</span>
+└── src/main/java/com/personal/base/apps/
+    └── <span class="a">(one folder per App, one file or a system)</span>
+
+<span class="d">:app/</span>                           <span class="f">shell — frozen</span>
 ├── di/                 <span class="f">PlatformContainer</span>
 ├── shell/              <span class="f">TileService, SystemReceiver</span>
 ├── platform/           <span class="f">SyncWorker, ForegroundService</span>
 ├── ui/                 <span class="f">Dashboard, Apps, Logs, Settings,</span>
 │   │                   <span class="f">Capabilities, Onboarding, Lock</span>
-├── receiver/           <span class="f">BootReceiver</span>
+└── receiver/           <span class="f">BootReceiver</span>
 
 <span class="d">buildSrc/</span>                       <span class="f">build logic</span>
-└── GenerateAppRegistryTask  <span class="f">scans sources for</span>
+└── GenerateAppRegistryTask  <span class="f">scans every App module for</span>
                               <span class="f">@PlatformAppDefinition</span>
 
 <span class="d">settings.gradle.kts</span>            <span class="f">which modules exist</span>
 <span class="d">gradle/libs.versions.toml</span>       <span class="f">dependency versions</span>
-<span class="d">release.jks</span>                     <span class="f">release signing key</span></div>
+<span class="d">android-star-release.jks</span>          <span class="f">signing key — gitignored</span></div>
     </div>
   </div>
 
   <div class="callout" style="margin-top:14px">
-    The dependency runs <b>one way</b>: <code>:app</code> depends on <code>:core</code>, never the reverse.
-    A <code>:core</code> reference to shell code is a <b style="color:var(--bad)">compile error</b>.
+    Dependencies run <b>one way</b>: <code>:app</code> → <code>:core</code> + <code>:apps</code>,
+    and <code>:apps</code> → <code>:core</code> only. A <code>:core</code> or <code>:apps</code>
+    reference to shell code is a <b style="color:var(--bad)">compile error</b>, not a convention.
+  </div>
+</div>
+
+<!-- ============ ONE APK ============ -->
+<div class="card hl">
+  <h2>One installable app, however many Apps you write</h2>
+  <p style="color:var(--mut);font-size:13.5px;margin-bottom:12px">
+    An <b style="color:#a78bfa">App</b> here is a feature you write, not software you install.
+  </p>
+  <div class="flow">
+    <div class="node"><div class="t">apps/ + app/</div><div class="s">written as source</div></div>
+    <div class="arr">→</div>
+    <div class="node"><div class="t">gradle build</div><div class="s">folds every App in</div></div>
+    <div class="arr">→</div>
+    <div class="node"><div class="t">one APK</div><div class="s">com.personal.base</div></div>
+    <div class="arr">→</div>
+    <div class="node"><div class="t">installed once</div><div class="s">on your phone</div></div>
+  </div>
+  <div class="callout" style="margin-top:14px">
+    There is <b>no per-App install step</b>, and Apps are never downloaded or loaded at runtime.
+    Adding an App means rebuilding. Shipping Apps that install independently at runtime would be a
+    different, much larger capability this design does not attempt.
   </div>
 </div>
 
@@ -410,7 +434,7 @@ class HelloApp : PlatformApp {
   </div>
 </div>
 
-<footer>android-surface · generated from README.md</footer>
+<footer>android-star · generated from README.md</footer>
 </div>
 </body>
 </html>
