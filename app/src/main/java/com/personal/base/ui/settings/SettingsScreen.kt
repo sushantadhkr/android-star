@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Shield
@@ -40,6 +41,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -256,6 +258,68 @@ fun SettingsScreen(
                                 Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
                             )
                         }) { Text("Open list") }
+                    }
+                }
+            }
+        }
+
+        // Downloads: where files the platform fetches are written.
+        var downloadFolder by remember { mutableStateOf(container.downloadLocation.folderName) }
+
+        val pickFolder = rememberLauncherForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree()
+        ) { uri ->
+            if (uri != null && container.downloadLocation.setFolder(uri)) {
+                downloadFolder = container.downloadLocation.folderName
+            }
+        }
+
+        OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Download, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "Downloads folder",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = downloadFolder ?: "Downloads / Android Star (the default)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "By default files land in the phone's own Downloads, which needs no " +
+                            "permission on Android 10 and up. Point this somewhere else — an SD " +
+                            "card, a synced folder — and the platform will write there instead. " +
+                            "The folder is chosen through Android's own picker, so no storage " +
+                            "permission is involved at any version.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { pickFolder.launch(null) }) {
+                        Text(if (downloadFolder == null) "Choose a folder" else "Change folder")
+                    }
+                    if (downloadFolder != null) {
+                        OutlinedButton(onClick = {
+                            container.downloadLocation.clear()
+                            downloadFolder = null
+                        }) { Text("Use the default") }
                     }
                 }
             }

@@ -1,9 +1,12 @@
 package com.personal.base.platform.capabilities
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.ContentValues
+import android.os.Build
+import androidx.core.app.NotificationCompat
 import android.content.Context
 import android.net.Uri
-import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import com.personal.base.core.capability.CapabilityProvider
@@ -54,21 +57,42 @@ data class MediaDownload(
  */
 class MediaDownloadCapabilityProvider(
     private val context: Context,
-    private val logger: PlatformLogger
+    private val logger: PlatformLogger,
+    /** Where files go. Absent in tests and in any build with no user choice, which means Downloads. */
+    private val location: com.personal.base.core.platform.DownloadLocationStore? = null
 ) : CapabilityProvider {
 
     override val type: CapabilityType = CapabilityType.DOWNLOAD_MANAGER
 
     private val scope = CoroutineScope(Dispatchers.IO + Job())
     private val downloads = ConcurrentHashMap<String, MediaDownload>()
+    private val lastProgressAt = ConcurrentHashMap<String, Long>()
     private val jobs = ConcurrentHashMap<String, Job>()
 
     /** Everything this provider has been asked to fetch, newest first. */
     private val _history = MutableStateFlow<List<MediaDownload>>(emptyList())
     val history: StateFlow<List<MediaDownload>> = _history.asStateFlow()
 
+    private val notificationManager: NotificationManager? =
+        context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+
     override fun initialize() {
+        createChannel()
         logger.i("MediaDownload", "Media download provider ready")
+    }
+
+    private fun createChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        notificationManager?.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL,
+                "Media downloads",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Progress of files the platform is fetching"
+                setShowBadge(false)
+            }
+        )
     }
 
     override fun checkStatus(): CapabilityStatus = CapabilityStatus.Available
@@ -106,6 +130,7 @@ class MediaDownloadCapabilityProvider(
         // caller believing a file went somewhere it did not.
         val name = sanitise(fileName?.takeIf { it.isNotBlank() } ?: guessFileName(url))
 
+        lastProgressAt[id] = System.currentTimeMillis()
         val record = MediaDownload(
             id = id,
             url = url,
@@ -120,6 +145,7 @@ class MediaDownloadCapabilityProvider(
         downloads[id] = record
         push()
 
+        notify(record)
         jobs[id] = scope.launch { run(record.id, url, name, mediaType) }
         return record
     }
@@ -172,8 +198,12 @@ class MediaDownloadCapabilityProvider(
                     written += read
                     // Progress is published periodically rather than per chunk; a 1 KB buffer on a
                     // large file would otherwise churn the state flow thousands of times a second.
-                    if (written % (512 * 1024) < read) {
+                    // Throttled hard. A 64 KB buffer on a large file would otherwise post
+                    // thousands of notifications a second, which is its own kind of freeze.
+                    if (System.currentTimeMillis() - lastProgressAt[id]!! > PROGRESS_INTERVAL_MS) {
+                        lastProgressAt[id] = System.currentTimeMillis()
                         update(id) { it.copy(bytesDownloaded = written, totalBytes = declared) }
+                        notify(downloads[id]!!)
                     }
                 }
                 output.flush()
@@ -192,6 +222,7 @@ class MediaDownloadCapabilityProvider(
                 )
             }
             logger.i("MediaDownload", "Saved $fileName ($written bytes) to Downloads")
+            notify(downloads[id]!!)
         } catch (e: Exception) {
             uri?.let { runCatching { context.contentResolver.delete(it, null, null) } }
             val cancelled = e is kotlinx.coroutines.CancellationException
@@ -218,6 +249,21 @@ class MediaDownloadCapabilityProvider(
 
     private fun createDestination(fileName: String, mimeType: String): Uri {
         val safeName = sanitise(fileName)
+
+        // A folder the user chose wins over the default. Written through the SAF tree rather than
+        // a file path, because that is the only way that keeps working under scoped storage.
+        val chosen = location?.folder
+        if (chosen != null) {
+            val created = runCatching {
+                android.provider.DocumentsContract.createDocument(
+                    context.contentResolver, chosen, mimeType, safeName
+                )
+            }.getOrNull()
+            if (created != null) return created
+            // A grant that has been revoked lands here. Falling back keeps the download working
+            // rather than failing on something the user cannot see the cause of.
+            logger.w("MediaDownload", "Chosen folder refused $safeName; falling back to Downloads")
+        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values = ContentValues().apply {
@@ -246,11 +292,8 @@ class MediaDownloadCapabilityProvider(
     }
 
     private fun pathFor(fileName: String): String =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            "Downloads/$FOLDER/${sanitise(fileName)}"
-        } else {
-            "Downloads/$FOLDER/${sanitise(fileName)}"
-        }
+        location?.folderName?.let { "$it/${sanitise(fileName)}" }
+            ?: "Downloads/$FOLDER/${sanitise(fileName)}"
 
     /**
      * A name from a URL is not a name we can trust on a filesystem.
@@ -279,6 +322,59 @@ class MediaDownloadCapabilityProvider(
         else -> "application/octet-stream"
     }
 
+    /**
+     * A real progress bar, not a spinner.
+     *
+     * Indeterminate whenever the server did not send a length, because a bar that sits at 0% while
+     * a gigabyte moves would be worse than an honest "I do not know how big this is".
+     */
+    private fun notify(d: MediaDownload) {
+        val nm = notificationManager ?: return
+        val known = d.totalBytes > 0
+
+        val builder = NotificationCompat.Builder(context, CHANNEL)
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setContentTitle(d.fileName)
+            .setOnlyAlertOnce(true)
+            .setOngoing(d.status == "queued" || d.status == "downloading")
+            .setProgress(100, d.percent, !known)
+
+        when (d.status) {
+            "downloading", "queued" -> builder
+                .setContentText(if (known) "${d.percent}% of ${human(d.totalBytes)}" else "Downloading…")
+            "complete" -> builder
+                .setContentText("Saved to ${d.savedPath ?: "Downloads"}")
+                .setOngoing(false)
+            "failed" -> builder
+                .setContentText("Failed: ${d.error ?: "unknown error"}")
+                .setOngoing(false)
+            "cancelled" -> builder.setContentText("Cancelled").setOngoing(false)
+            else -> builder.setContentText(d.status)
+        }
+
+        // Tapping the notification opens the folder the file went into.
+        .setContentIntent(
+            android.app.PendingIntent.getActivity(
+                context,
+                d.id.hashCode(),
+                android.content.Intent(
+                    android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    android.net.Uri.parse("package:${context.packageName}")
+                ),
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+        )
+
+        runCatching { nm.notify(d.id.hashCode(), builder.build()) }
+    }
+
+    private fun human(bytes: Long): String = when {
+        bytes >= 1_000_000_000 -> "%.1f GB".format(bytes / 1_000_000_000.0)
+        bytes >= 1_000_000 -> "%.1f MB".format(bytes / 1_000_000.0)
+        bytes >= 1_000 -> "%.0f kB".format(bytes / 1_000.0)
+        else -> "$bytes B"
+    }
+
     private fun update(id: String, change: (MediaDownload) -> MediaDownload) {
         downloads.computeIfPresent(id) { _, current -> change(current) }
         push()
@@ -290,5 +386,7 @@ class MediaDownloadCapabilityProvider(
 
     companion object {
         const val FOLDER = "Android Star"
+        const val CHANNEL = "personal_base_downloads"
+        const val PROGRESS_INTERVAL_MS = 700L
     }
 }

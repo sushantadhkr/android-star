@@ -425,6 +425,26 @@ Two deliberate limits:
   which would write outside the folder it was given. The name the API reports is the name it
   actually uses, so it never claims a file went somewhere it did not.
 
+A real progress bar is posted while it runs, and left behind when it finishes. When the server
+does not send a length the bar is indeterminate rather than pinned at 0%, because a progress bar
+that does not move while a gigabyte transfers is worse than saying "I do not know how big this is".
+
+### Where downloads go, and whether storage access is needed
+
+**On Android 10 and up, no storage permission is needed at all.** Downloads are written through
+`MediaStore`, which is scoped storage's own API. Nothing is requested, and there is nothing to
+grant.
+
+**On Android 7, 8 and 9** the platform falls back to a plain file path, which does need
+`WRITE_EXTERNAL_STORAGE` — declared in the manifest with `maxSdkVersion="32"` and requested during
+onboarding, but only on those versions.
+
+**You can point it somewhere else.** Settings → Downloads folder opens Android's own folder picker,
+so a user can choose an SD card or a synced folder. That path uses the Storage Access Framework,
+which needs **no storage permission on any version**, and the grant is persisted so it survives a
+restart. A revoked grant falls back to the default rather than failing with something the user
+cannot see the cause of.
+
 ### The clipboard can be written but not read
 
 Android 10 restricted clipboard **reads**. Only two roles may call `getPrimaryClip()`: the app

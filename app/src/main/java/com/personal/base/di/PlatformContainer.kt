@@ -118,6 +118,7 @@ import com.personal.base.platform.capabilities.MediaStreamEncoderCapabilityProvi
 import com.personal.base.platform.capabilities.NetworkUsageCapabilityProvider
 import com.personal.base.platform.capabilities.NfcCapabilityProvider
 import com.personal.base.core.capability.NotificationActionLog
+import com.personal.base.core.platform.DownloadLocationStore
 import com.personal.base.platform.capabilities.NotificationCapabilityProvider
 import com.personal.base.receiver.NotificationActionReceiver
 import com.personal.base.platform.capabilities.NotificationListenerCapabilityProvider
@@ -165,6 +166,7 @@ class PlatformContainer(val context: Context) {
     val capabilityCatalogue = CapabilityCatalogue(capabilityRegistry, capabilityGate)
     val apiTokenStore = ApiTokenStore(context)
     val notificationActionLog = NotificationActionLog()
+    val downloadLocation = DownloadLocationStore(context)
     val capabilityActions = CapabilityActions(capabilityRegistry, logger, notificationActionLog)
     val capabilityApi = CapabilityApi(
         registry = capabilityRegistry,
@@ -347,7 +349,7 @@ class PlatformContainer(val context: Context) {
         capabilityRegistry.register(DownloadManagerCapabilityProvider(context, logger))
         // Replaces the system DownloadManager for anything the API drives, so the file lands in
         // Downloads through MediaStore and its progress and destination can actually be reported.
-        capabilityRegistry.register(MediaDownloadCapabilityProvider(context, logger))
+        capabilityRegistry.register(MediaDownloadCapabilityProvider(context, logger, downloadLocation))
         capabilityRegistry.register(VpnCapabilityProvider(context, logger))
         capabilityRegistry.register(GeofenceActivityCapabilityProvider(context, logger))
         capabilityRegistry.register(NetworkUsageCapabilityProvider(context, logger))

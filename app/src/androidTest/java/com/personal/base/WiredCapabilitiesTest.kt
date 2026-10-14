@@ -273,4 +273,61 @@ class WiredCapabilitiesTest {
         )!!.fileName
         assertTrue("a traversing name must be flattened, got '$name'", !name.contains("..") && !name.contains('/'))
     }
+
+    @Test
+    fun aDownloadPostsAProgressNotification() {
+        ok("DOWNLOAD_MANAGER", "fetch", "url" to "https://example.com", "fileName" to "notified.bin")
+
+        val container = this.container
+        val provider = container.capabilityRegistry
+            .getProviderByClass(MediaDownloadCapabilityProvider::class.java)
+        assertTrue("the media download provider must be registered", provider != null)
+
+        val nm = InstrumentationRegistry.getInstrumentation().targetContext
+            .getSystemService(android.content.Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+
+        // Posted, not just scheduled: the notification must be visible while the job runs.
+        var seen = false
+        val deadline = System.currentTimeMillis() + 10_000
+        while (System.currentTimeMillis() < deadline && !seen) {
+            seen = nm.activeNotifications.any { it.id == provider!!.recent(1).first().id.hashCode() }
+            if (!seen) Thread.sleep(150)
+        }
+        assertTrue("a download must post a progress notification", seen)
+
+        val deadline2 = System.currentTimeMillis() + 30_000
+        var done: MediaDownload? = null
+        while (System.currentTimeMillis() < deadline2) {
+            val d = provider!!.get(provider.recent(1).first().id)
+            if (d != null && d.status in listOf("complete", "failed")) { done = d; break }
+            Thread.sleep(250)
+        }
+        assertTrue("the download never finished", done != null)
+        assertTrue("the download failed: " + done!!.error, done!!.status == "complete")
+    }
+
+    @Test
+    fun downloadsDefaultToDownloadsWithNoPermissionNeeded() {
+        // MediaStore needs nothing on Android 10+. The folder the API reports must say so, rather
+        // than implying the platform is writing somewhere it was granted.
+        ok("DOWNLOAD_MANAGER", "fetch", "url" to "https://example.com", "fileName" to "where.bin")
+        val provider = container.capabilityRegistry
+            .getProviderByClass(MediaDownloadCapabilityProvider::class.java)!!
+
+        // savedPath is only known once the file is written, so wait rather than assert on null.
+        val id = provider.recent(1).first().id
+        var done: MediaDownload? = null
+        val deadline = System.currentTimeMillis() + 30_000
+        while (System.currentTimeMillis() < deadline) {
+            val d = provider.get(id)
+            if (d != null && d.status in listOf("complete", "failed")) { done = d; break }
+            Thread.sleep(250)
+        }
+        assertTrue("the download never finished", done != null)
+        assertTrue(
+            "with no folder chosen, downloads must report the phone's own Downloads folder, got " +
+                done!!.savedPath,
+            done!!.savedPath?.startsWith("Downloads/") == true
+        )
+    }
 }
