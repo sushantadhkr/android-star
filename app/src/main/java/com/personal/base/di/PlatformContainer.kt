@@ -165,7 +165,8 @@ class PlatformContainer(val context: Context) {
         catalogue = capabilityCatalogue,
         tokenStore = apiTokenStore,
         actions = capabilityActions,
-        logger = logger
+        logger = logger,
+        appRoutes = { appManager.publishedRoutes() }
     )
     val commandValidator = CommandValidator(configRepository, logger)
 

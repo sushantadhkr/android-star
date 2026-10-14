@@ -79,7 +79,12 @@ class AppManager(
         runCatching { instance.install(registrar) }
             .onFailure { logger.e("AppManager", "App '$appId' failed to install routes: ${it.message}") }
         registrars[appId] = registrar
-        logger.i("AppManager", "App '$appId' serving under ${registrar.resolve("")}")
+        if (registrar.routes().isNotEmpty()) {
+            logger.i(
+                "AppManager",
+                "App '$appId' serving ${registrar.routes().size} route(s) under ${registrar.resolve("")}"
+            )
+        }
     }
 
     /** Removes an App's routes. Called when the App is switched off. */
@@ -146,6 +151,17 @@ class AppManager(
 
     /** The live instance, or null when the App is switched off. */
     fun instanceOf(appId: String): PlatformApp? = instances[appId]
+
+    /**
+     * Every route Apps currently publish, paired with the App that owns it.
+     *
+     * Read by the docs endpoint so App documentation is generated from the routes Apps actually
+     * registered, rather than maintained separately.
+     */
+    fun publishedRoutes(): List<Pair<String, List<AppRoute>>> =
+        registrars.mapNotNull { (appId, registrar) ->
+            registrar.routes().takeIf { it.isNotEmpty() }?.let { appId to it }
+        }
 
     /**
      * A scope for the App, usable from anywhere the manager is reachable.

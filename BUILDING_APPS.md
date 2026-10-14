@@ -178,15 +178,16 @@ The platform owns one server and one port. An App contributes routes to it by im
 @PlatformAppDefinition(id = "webcam", name = "Webcam", order = 10)
 class WebcamApp : PlatformApp, AppServer {
 
-    override val id = "webcam"
-    override val name = "Webcam"
-    override val icon = Icons.Default.Videocam
-    override val description = "Serves the camera."
-    override val version = "1.0"
-
     override fun install(registrar: AppRouteRegistrar) {
-        registrar.get("status") { ServerResponse.json("""{"streaming":$streaming}""") }
-        registrar.get("clients") { ServerResponse.json("""{"clients":${clients.size}}""") }
+        registrar.get(
+            path = "status",
+            summary = "Report whether the camera is currently streaming"
+        ) { ServerResponse.json("""{"streaming":$streaming}""") }
+
+        registrar.get(
+            path = "clients",
+            summary = "How many viewers are connected right now"
+        ) { ServerResponse.json("""{"clients":${clients.size}}""") }
     }
 
     override fun uninstall() {
@@ -202,6 +203,26 @@ Your endpoints are namespaced automatically:
 /api/apps/webcam/clients
 ```
 
+### Every route must be documented — this is enforced
+
+`summary` is **not optional**. Omit it and the build fails:
+
+```
+IllegalArgumentException: Route 'status' must have a summary
+```
+
+This is deliberate. Documentation lives *inside* the route definition, so:
+
+- a route cannot be added without being described;
+- the description cannot drift from what the route does;
+- your routes appear automatically in `GET /api/capabilities/docs`, generated from your own
+  declarations rather than from a document you have to keep in sync.
+
+Supply `example` and `requiresUserConsent` when they apply — both show up in the generated docs.
+
+**The same convention governs the platform's own capability actions.** Nothing can be exposed
+without documentation; see `GET /api/capabilities/docs`.
+
 Rules:
 
 - **Never open your own socket.** The platform runs the server; you contribute routes.
@@ -210,7 +231,7 @@ Rules:
 - `install` runs when the App is switched on, `uninstall` when it is switched off. Release hardware
   in `uninstall`.
 - Nothing is reachable while the **always-on host** (Settings → Always-on Platform Host) is off.
-- The server has **no authentication**. Do not expose anything private on it.
+- Every request needs the bearer token from Settings → API access token.
 
 ## 11. Never modify the platform
 
@@ -246,6 +267,7 @@ To add a whole new *module* of Apps, add it to `settings.gradle.kts` and one lin
 - [ ] Logs flow to the Logs page
 - [ ] Toggle-off verified on a device
 - [ ] Works after a restart with the toggle restored
+- [ ] If it serves: **every route has a summary**, and appears in `/api/capabilities/docs`
 
 ---
 
@@ -260,7 +282,7 @@ To add a whole new *module* of Apps, add it to `settings.gradle.kts` and one lin
 | Add a full screen | Override `AppContent` |
 | Use a device capability | `context.getCapabilityByClass(...)` |
 | Add a non-tab page | Add to `OverlayDestination` |
-| Serve a capability | Implement `AppServer`, register routes |
+| Serve a capability | Implement `AppServer`, register routes with a summary |
 | Match the platform look | `PlatformCard`, `PlatformHint`, `MaterialTheme` tokens |
 | Add spacing | `PlatformSpacing.small / medium / large` |
 | Show a labelled switch | `PlatformSwitchRow { checked = it }` |

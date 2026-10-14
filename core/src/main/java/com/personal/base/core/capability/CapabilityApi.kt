@@ -1,5 +1,6 @@
 package com.personal.base.core.capability
 
+import com.personal.base.core.app.AppRoute
 import com.personal.base.core.logging.PlatformLogger
 import com.personal.base.core.platform.EmbeddedServer
 import com.personal.base.core.platform.ServerRequest
@@ -29,7 +30,9 @@ class CapabilityApi(
     private val catalogue: CapabilityCatalogue,
     private val tokenStore: ApiTokenStoreContract,
     private val actions: CapabilityActions,
-    private val logger: PlatformLogger
+    private val logger: PlatformLogger,
+    /** Supplied by the App manager so App routes appear in the docs from their own definitions. */
+    private val appRoutes: () -> List<Pair<String, List<AppRoute>>> = { emptyList() }
 ) {
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -97,6 +100,8 @@ class CapabilityApi(
                 put("enabled", JsonPrimitive(true))
             })
 
+            put("appRoutes", appRoutesJson())
+
             put("capabilities", buildJsonArray {
                 actions.specs.forEach { spec ->
                     add(
@@ -148,6 +153,28 @@ class CapabilityApi(
         put("path", path)
         put("method", method)
         put("summary", summary)
+    }
+
+    /**
+     * The routes Apps have published.
+     *
+     * Sourced from the same [AppRoute] objects the Apps registered, so an App's documentation is
+     * generated from its implementation rather than maintained alongside it.
+     */
+    private fun appRoutesJson(): kotlinx.serialization.json.JsonArray = buildJsonArray {
+        appRoutes().forEach { (appId, routes) ->
+            routes.forEach { route ->
+                add(
+                    buildJsonObject {
+                        put("app", appId)
+                        put("path", "/api/apps/$appId/${route.path}")
+                        put("summary", route.summary)
+                        put("requiresUserConsent", route.requiresUserConsent)
+                        if (route.example.isNotBlank()) put("exampleRequest", route.example)
+                    }
+                )
+            }
+        }
     }
 
     /**

@@ -289,6 +289,74 @@ These must never break:
 
 ---
 
+## The HTTP surface
+
+The always-on platform host runs one server, on **port 8899**. Every request must carry the bearer
+token from **Settings → API access token**, which can be rotated there.
+
+```bash
+TOKEN=...   # Settings → API access token
+H="Authorization: Bearer $TOKEN"
+
+# the full, self-describing reference
+curl -H "$H" http://PHONE:8899/api/capabilities/docs
+
+# every capability with its status and the actions it supports
+curl -H "$H" http://PHONE:8899/api/capabilities
+
+# post a notification
+curl -H "$H" -X POST http://PHONE:8899/api/capabilities/invoke \
+  -d '{"capability":"NOTIFICATIONS","action":"post","title":"Hello","message":"from curl"}'
+
+# take a photo
+curl -H "$H" -X POST http://PHONE:8899/api/capabilities/invoke \
+  -d '{"capability":"CAMERA","action":"capture"}'
+
+# switch a capability off — the API then refuses to touch it
+curl -H "$H" -X POST http://PHONE:8899/api/capabilities/toggle \
+  -d '{"capability":"CAMERA","enabled":false}'
+```
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/capabilities` | Every capability with status and supported actions |
+| `GET /api/capabilities/docs` | Full reference, generated from the implementation |
+| `POST /api/capabilities/invoke` | Run a capability action |
+| `POST /api/capabilities/toggle` | Switch one capability, or all of them |
+| `GET /api/apps/<id>/<path>` | Endpoints published by Apps that serve |
+
+### The gate is authoritative
+
+A capability you switch off is **never invoked**. The check happens before the action is
+dispatched, so the API returns `403` rather than quietly doing nothing. Disabled capabilities remain
+listed, greyed, so the full surface stays discoverable. The same rule covers Apps: a stopped App
+answers `503` on its own endpoints.
+
+### Every API must be documented — this is enforced
+
+Documentation is part of each endpoint's *definition*, not a document kept beside it:
+
+```kotlin
+ActionSpec(
+    "capture", "Take a photo and save it as JPEG",
+    params = listOf(ParamDoc("cameraId", "string", false, "Which camera", "0")),
+    example = """{"capability":"CAMERA","action":"capture"}""",
+    returns  = """{"file":"/data/.../capture.jpg","bytes":482913}""",
+    handler  = { p -> cameraCapture(p) }
+)
+```
+
+An action without a summary or an example **cannot be constructed** — the build fails with
+`Action 'x' must have a summary`. The catalogue, the docs endpoint and the dispatcher all read the
+same object, so documentation cannot drift from behaviour. Apps are held to the same rule: a route
+published without a summary fails to compile, and shows up in `/api/capabilities/docs` generated
+from your own declarations.
+
+A capability whose provider cannot genuinely do something advertises no actions at all, rather than
+claiming an action it cannot perform.
+
+---
+
 ## Building
 
 Requires JDK 17 and Android SDK 36.

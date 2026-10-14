@@ -45,7 +45,7 @@ class AppServerTest {
 
         override fun install(registrar: AppRouteRegistrar) {
             installs++
-            registrar.get("status") { ServerResponse.json("""{"running":true}""") }
+            registrar.get("status", "Report whether the App is running") { ServerResponse.json("""{"running":true}""") }
         }
 
         override fun uninstall() {
@@ -171,7 +171,7 @@ class AppServerTest {
     fun `a request to a stopped app is refused rather than served`() {
         var appRunning = true
         val registrar = AppRouteRegistrar(APP_ID, server, { appRunning })
-        registrar.get("status") { ServerResponse.json("""{"running":true}""") }
+        registrar.get("status", "Report whether the App is running") { ServerResponse.json("""{"running":true}""") }
 
         val path = "/api/apps/$APP_ID/status"
         val handler = server.handlerFor(path)!!
@@ -208,6 +208,43 @@ class AppServerTest {
         override fun setClipboardContent(text: String, label: String) = Unit
         override fun shareText(text: String, title: String) = Unit
         override suspend fun getFreshLocation(): PlatformLocation? = null
+    }
+
+    @Test
+    fun `a route without a summary is refused at construction`() {
+        val failure = runCatching {
+            AppRoute(
+                path = "status",
+                summary = "   ",
+                handler = { ServerResponse.json("{}") }
+            )
+        }.exceptionOrNull()
+        assertTrue("an undocumented route must not be constructible", failure is IllegalArgumentException)
+    }
+
+    @Test
+    fun `every published route carries a summary`() {
+        manager.server = server
+        registerServingApp()
+
+        val routes = manager.publishedRoutes().flatMap { it.second }
+        assertTrue(routes.isNotEmpty())
+        routes.forEach { route ->
+            assertTrue(
+                "route ${route.path} must have a summary",
+                route.summary.isNotBlank()
+            )
+        }
+    }
+
+    @Test
+    fun `published routes disappear when the app stops`() {
+        manager.server = server
+        registerServingApp()
+        assertTrue(manager.publishedRoutes().isNotEmpty())
+
+        manager.setEnabled(APP_ID, false)
+        assertTrue(manager.publishedRoutes().isEmpty())
     }
 
     private companion object {
