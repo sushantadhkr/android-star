@@ -19,6 +19,8 @@ app/build
 keystore.properties
 
 # Module build outputs (see Phase 1 split)
+build
 core/build
+apps/build
 buildSrc/build
 buildSrc/.gradle
