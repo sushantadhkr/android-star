@@ -6,200 +6,282 @@
 <title>Android Star — Capability Console</title>
 <style>
   :root {
-    --bg: #0d1117;
-    --panel: #161b22;
-    --panel-2: #1c2128;
-    --border: #30363d;
-    --text: #e6edf3;
-    --muted: #8b949e;
-    --accent: #58a6ff;
-    --ok: #3fb950;
-    --warn: #d29922;
-    --off: #6e7681;
-    --bad: #f85149;
-    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --bg:#080b10; --bg-2:#0d1219; --panel:#121821; --panel-2:#182030; --raised:#1e2739;
+    --border:#243044; --border-soft:#1b2434;
+    --text:#e8eef7; --muted:#8494ad; --faint:#5d6b83;
+    --accent:#5b9dff; --accent-soft:rgba(91,157,255,.14);
+    --ok:#3ddc97; --warn:#ffb454; --bad:#ff6b6b; --off:#4a5568;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --r:12px; --r-sm:8px;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.25);
   }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;background:
+      radial-gradient(1100px 600px at 15% -10%,rgba(91,157,255,.10),transparent 60%),
+      radial-gradient(900px 500px at 100% 0%,rgba(61,220,151,.06),transparent 55%),
+      var(--bg);
+    color:var(--text);font:14px/1.55 var(--sans);
+    -webkit-font-smoothing:antialiased;
   }
-  a { color: var(--accent); }
+  a{color:var(--accent)}
+  code,pre{font-family:var(--mono)}
+  ::selection{background:rgba(91,157,255,.3)}
 
-  /* ---- connection bar ---- */
-  header {
-    position: sticky; top: 0; z-index: 10; background: var(--panel);
-    border-bottom: 1px solid var(--border); padding: 10px 16px;
-    display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+  /* ---------- top bar ---------- */
+  .top{
+    position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);
+    background:rgba(8,11,16,.82);border-bottom:1px solid var(--border-soft);
   }
-  header h1 { font-size: 15px; margin: 0 12px 0 0; font-weight: 600; white-space: nowrap; }
-  .field { display: flex; flex-direction: column; gap: 3px; }
-  .field label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-  input[type=text], input[type=password], input[type=number], textarea, select {
-    background: var(--bg); color: var(--text); border: 1px solid var(--border);
-    border-radius: 6px; padding: 6px 9px; font-size: 13px; font-family: var(--mono);
+  .top-in{
+    max-width:1400px;margin:0 auto;padding:12px 20px;
+    display:flex;gap:14px;align-items:center;flex-wrap:wrap;
   }
-  input:focus, textarea:focus { outline: none; border-color: var(--accent); }
-  input[type=text]#base { width: 250px; }
-  input[type=password]#token { width: 200px; }
+  .brand{display:flex;align-items:center;gap:10px;margin-right:auto}
+  .mark{
+    width:30px;height:30px;border-radius:9px;flex:none;
+    background:linear-gradient(135deg,var(--accent),#8b5cf6);
+    display:grid;place-items:center;font-weight:800;font-size:14px;color:#04101f;
+    box-shadow:0 0 0 1px rgba(255,255,255,.08) inset;
+  }
+  .brand h1{font-size:14px;margin:0;font-weight:650;letter-spacing:-.01em}
+  .brand small{display:block;color:var(--faint);font-size:11px;font-weight:400}
 
-  button {
-    background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
-    border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 13px;
+  .field{display:flex;flex-direction:column;gap:4px}
+  .field label{font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em;font-weight:600}
+  input[type=text],input[type=password],input[type=number],textarea{
+    background:var(--bg-2);color:var(--text);border:1px solid var(--border);
+    border-radius:var(--r-sm);padding:7px 10px;font:13px var(--mono);
+    transition:border-color .15s,box-shadow .15s;width:100%;
   }
-  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-  button:disabled { opacity: .45; cursor: not-allowed; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #06121f; font-weight: 600; }
-  button.primary:hover:not(:disabled) { filter: brightness(1.1); color: #06121f; }
-  button.tiny { padding: 3px 8px; font-size: 12px; }
+  input:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  #base{width:250px}
+  #token{width:210px}
 
-  #status { margin-left: auto; font-size: 12px; font-family: var(--mono); color: var(--muted); }
-  #status.ok { color: var(--ok); } #status.bad { color: var(--bad); }
-
-  /* ---- layout ---- */
-  .wrap { display: flex; align-items: flex-start; }
-  aside {
-    width: 290px; flex: none; border-right: 1px solid var(--border);
-    height: calc(100vh - 53px); overflow-y: auto; padding: 10px;
-    position: sticky; top: 53px;
+  button{
+    background:var(--panel-2);color:var(--text);border:1px solid var(--border);
+    border-radius:var(--r-sm);padding:7px 13px;cursor:pointer;font:13px var(--sans);
+    font-weight:500;transition:.15s;white-space:nowrap;
   }
-  main { flex: 1; padding: 18px 22px; min-width: 0; }
-
-  .cap {
-    display: flex; align-items: center; gap: 8px; padding: 7px 9px;
-    border-radius: 6px; cursor: pointer; border: 1px solid transparent;
+  button:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+  button:active:not(:disabled){transform:translateY(1px)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#04101f;font-weight:650}
+  button.primary:hover:not(:disabled){filter:brightness(1.1);color:#04101f}
+  button.ghost{background:transparent}
+  button.chip{
+    border-radius:999px;padding:5px 13px;font-size:12.5px;color:var(--muted);
+    background:var(--panel);
   }
-  .cap:hover { background: var(--panel); }
-  .cap.sel { background: var(--panel-2); border-color: var(--accent); }
-  .cap .name { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
-  .dot.usable { background: var(--ok); }
-  .dot.switched { background: var(--warn); }
-  .dot.off { background: var(--off); }
-  .badge { font-size: 10px; color: var(--muted); font-family: var(--mono); }
-  aside h3 { font-size: 11px; text-transform: uppercase; color: var(--muted);
-             letter-spacing: .06em; margin: 14px 0 6px 9px; }
+  button.chip:hover:not(:disabled){color:var(--text)}
+  button.chip.on{background:var(--accent-soft);border-color:transparent;color:var(--accent)}
 
-  /* ---- actions ---- */
-  .action {
-    border: 1px solid var(--border); border-radius: 8px; margin-bottom: 12px;
-    background: var(--panel); overflow: hidden;
+  .pill{
+    display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border-radius:999px;
+    font:12px var(--mono);border:1px solid var(--border);background:var(--panel);
   }
-  .action > summary {
-    cursor: pointer; padding: 10px 14px; display: flex; align-items: center; gap: 10px;
-    list-style: none; user-select: none;
-  }
-  .action > summary::-webkit-details-marker { display: none; }
-  .action > summary:hover { background: var(--panel-2); }
-  .action .name { font-family: var(--mono); color: var(--accent); font-weight: 600; }
-  .action .desc { color: var(--muted); font-size: 12px; margin-left: auto; text-align: right; }
-  .body { padding: 4px 14px 14px; border-top: 1px solid var(--border); }
-  .consent { color: var(--warn); font-size: 11px; }
+  .dot{width:7px;height:7px;border-radius:50%;flex:none}
+  .dot.on{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+  .dot.off{background:var(--off)}
+  .dot.bad{background:var(--bad);box-shadow:0 0 8px var(--bad)}
+  .dot.warn{background:var(--warn);box-shadow:0 0 8px var(--warn)}
 
-  .param { margin: 12px 0; }
-  .param .top { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
-  .param .pname { font-family: var(--mono); font-size: 13px; }
-  .param .ptype { font-size: 11px; color: var(--muted); font-family: var(--mono); }
-  .param .req { font-size: 10px; color: var(--bad); text-transform: uppercase; }
-  .param .ph { font-size: 12px; color: var(--muted); margin: 4px 0; }
-  .param input[type=text], .param input[type=number] { width: 100%; }
-  .param textarea { width: 100%; min-height: 76px; resize: vertical; }
-  .param .bool { display: flex; align-items: center; gap: 8px; }
-
-  .row { display: flex; gap: 8px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
-  pre {
-    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
-    padding: 10px; overflow-x: auto; font-family: var(--mono); font-size: 12px;
-    margin: 10px 0 0; white-space: pre-wrap; word-break: break-word;
+  /* ---------- tabs ---------- */
+  .tabs{
+    max-width:1400px;margin:0 auto;padding:0 20px;display:flex;gap:2px;
+    border-bottom:1px solid var(--border-soft);overflow-x:auto;scrollbar-width:none;
   }
-  pre.ok { border-color: var(--ok); } pre.bad { border-color: var(--bad); }
-  .muted { color: var(--muted); }
-  .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
-  .empty { color: var(--muted); padding: 40px; text-align: center; }
-  code { font-family: var(--mono); background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
-  hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
+  .tabs::-webkit-scrollbar{display:none}
+  .tab{
+    background:none;border:none;border-bottom:2px solid transparent;border-radius:0;
+    padding:11px 15px;color:var(--muted);font-weight:550;font-size:13.5px;
+    display:flex;align-items:center;gap:8px;white-space:nowrap;
+  }
+  .tab:hover:not(:disabled){color:var(--text);border-bottom-color:var(--border)}
+  .tab.on{color:var(--accent);border-bottom-color:var(--accent)}
+  .tab .n{
+    font:11px var(--mono);background:var(--panel-2);border:1px solid var(--border);
+    border-radius:999px;padding:1px 7px;color:var(--faint);
+  }
+  .tab.on .n{background:var(--accent-soft);border-color:transparent;color:var(--accent)}
+
+  /* ---------- layout ---------- */
+  main{max-width:1400px;margin:0 auto;padding:22px 20px 80px}
+  .panel{display:none}
+  .panel.on{display:block;animation:fade .18s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+  .grid{display:grid;gap:14px}
+  .stats{grid-template-columns:repeat(auto-fit,minmax(168px,1fr))}
+  .stat{
+    background:var(--panel);border:1px solid var(--border-soft);border-radius:var(--r);
+    padding:15px 17px;box-shadow:var(--shadow);
+  }
+  .stat .k{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.07em;font-weight:600}
+  .stat .v{font:600 26px/1.2 var(--sans);margin-top:7px;letter-spacing:-.02em}
+  .stat .s{font-size:12px;color:var(--muted);margin-top:3px}
+
+  .card{
+    background:var(--panel);border:1px solid var(--border-soft);border-radius:var(--r);
+    box-shadow:var(--shadow);overflow:hidden;
+  }
+  .card-h{padding:14px 17px;border-bottom:1px solid var(--border-soft);font-weight:600;font-size:14px}
+  .card-b{padding:17px}
+
+  /* ---------- console / settings ---------- */
+  .connect{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+  .row{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+  .muted{color:var(--muted)}
+  .hint{font-size:12.5px;color:var(--muted);margin-top:8px;line-height:1.6}
+  .switch{display:flex;align-items:center;gap:11px;cursor:pointer;user-select:none}
+  .switch input{appearance:none;width:40px;height:23px;border-radius:999px;background:var(--border);
+    position:relative;cursor:pointer;transition:.18s;flex:none;border:1px solid transparent}
+  .switch input:checked{background:var(--ok)}
+  .switch input::after{content:"";position:absolute;top:2px;left:2px;width:17px;height:17px;border-radius:50%;
+    background:#fff;transition:.18s}
+  .switch input:checked::after{transform:translateX(17px)}
+
+  pre{
+    background:var(--bg-2);border:1px solid var(--border-soft);border-radius:var(--r-sm);
+    padding:12px;overflow-x:auto;font-size:12.5px;margin:10px 0 0;
+    white-space:pre-wrap;word-break:break-word;line-height:1.6;
+  }
+  pre.ok{border-color:rgba(61,220,151,.4)}
+  pre.bad{border-color:rgba(255,107,107,.45)}
+
+  /* ---------- groups ---------- */
+  .group{margin-bottom:26px}
+  .group-h{display:flex;align-items:baseline;gap:12px;margin:0 0 12px;flex-wrap:wrap}
+  .group-h h2{font-size:17px;margin:0;font-weight:650;letter-spacing:-.01em}
+  .group-h p{margin:0;color:var(--muted);font-size:12.5px}
+
+  .caps{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(330px,1fr))}
+  .cap{
+    background:var(--panel);border:1px solid var(--border-soft);border-radius:var(--r);
+    padding:14px 16px;box-shadow:var(--shadow);transition:border-color .15s,transform .15s;
+  }
+  .cap:hover{border-color:var(--border);transform:translateY(-1px)}
+  .cap-h{display:flex;align-items:center;gap:9px}
+  .cap-h .nm{font-weight:600;font-size:13.5px;flex:1;min-width:0;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+  .cap .id{font:11px var(--mono);color:var(--faint);margin-top:3px}
+  .cap .desc{font-size:12.5px;color:var(--muted);margin:8px 0 0}
+  .cap .badges{display:flex;gap:5px;flex-wrap:wrap;margin-top:10px}
+  .badge{font:10.5px var(--mono);padding:2px 7px;border-radius:5px;background:var(--raised);
+    color:var(--muted);border:1px solid var(--border-soft)}
+  .badge.act{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+
+  /* ---------- actions ---------- */
+  .acts{display:grid;gap:10px;margin-top:12px}
+  details.act{background:var(--bg-2);border:1px solid var(--border-soft);border-radius:var(--r-sm);overflow:hidden}
+  details.act>summary{
+    cursor:pointer;padding:10px 13px;display:flex;align-items:center;gap:10px;list-style:none;
+    font-size:13px;
+  }
+  details.act>summary::-webkit-details-marker{display:none}
+  details.act>summary:hover{background:var(--panel-2)}
+  details.act .nm{font-family:var(--mono);color:var(--accent);font-weight:650}
+  details.act .ds{margin-left:auto;color:var(--muted);font-size:12px;text-align:right}
+  .act-b{padding:4px 13px 14px;border-top:1px solid var(--border-soft)}
+  .p{margin:12px 0}
+  .p .top{display:flex;align-items:baseline;gap:8px;margin-bottom:4px;flex-wrap:wrap}
+  .p .pn{font:13px var(--mono);font-weight:600}
+  .p .pt{font:11px var(--mono);color:var(--faint)}
+  .p .rq{font-size:10px;color:var(--bad);text-transform:uppercase;font-weight:700;letter-spacing:.05em}
+  .p .ph{font-size:12px;color:var(--muted);margin-bottom:5px}
+  .p textarea{min-height:82px;resize:vertical}
+  .bool{display:flex;align-items:center;gap:9px;font-size:13px}
+  .note{color:var(--warn);font-size:11px}
+
+  .empty{text-align:center;padding:56px 20px;color:var(--muted)}
+  .warnbox{
+    background:rgba(255,180,84,.08);border:1px solid rgba(255,180,84,.3);
+    border-radius:var(--r);padding:14px 16px;color:var(--warn);font-size:13px;
+  }
+  .errbox{
+    background:rgba(255,107,107,.08);border:1px solid rgba(255,107,107,.32);
+    border-radius:var(--r);padding:14px 16px;color:#ffb3b3;font-size:13px;
+  }
+  @media(max-width:640px){
+    #base,#token{width:100%}
+    .field{flex:1 1 100%}
+  }
 </style>
 </head>
 <body>
 
-<header>
-  <h1>Android Star</h1>
-  <div class="field">
-    <label for="base">Server</label>
-    <input type="text" id="base" spellcheck="false" placeholder="http://100.101.227.77:8899">
+<header class="top">
+  <div class="top-in">
+    <div class="brand">
+      <div class="mark">★</div>
+      <div>
+        <h1>Android Star</h1>
+        <small id="brandSub">Capability Console</small>
+      </div>
+    </div>
+    <div class="field">
+      <label for="base">Server</label>
+      <input type="text" id="base" spellcheck="false" placeholder="http://100.101.227.77:8899">
+    </div>
+    <div class="field">
+      <label for="token">API token</label>
+      <input type="password" id="token" spellcheck="false" placeholder="Settings → API access token">
+    </div>
+    <button id="reveal" class="ghost" title="Show the token">Show</button>
+    <button id="connect" class="primary">Connect</button>
+    <span class="pill"><span class="dot off" id="dot"></span><span id="status">offline</span></span>
   </div>
-  <div class="field">
-    <label for="token">API token</label>
-    <input type="password" id="token" spellcheck="false" placeholder="Settings → API access token">
-  </div>
-  <button id="connect" class="primary">Connect</button>
-  <button id="reveal" class="tiny" title="Show the token">Show</button>
-  <span id="status">not connected</span>
+  <nav class="tabs" id="tabs"></nav>
 </header>
 
-<div class="wrap">
-  <aside>
-    <label style="display:flex;align-items:center;gap:8px;padding:4px 9px;font-size:12px">
-      <input type="checkbox" id="master"> master switch
-    </label>
-    <h3>Capabilities</h3>
-    <div id="list"><p class="hint" style="padding:9px">Connect to load capabilities.</p></div>
-  </aside>
-
-  <main id="main"><div class="empty">Connect to a phone running the always-on host.</div></main>
-</div>
+<main>
+  <section class="panel" id="p-overview"></section>
+  <section class="panel" id="p-caps"></section>
+  <section class="panel" id="p-apps"></section>
+  <section class="panel" id="p-docs"></section>
+</main>
 
 <script>
 "use strict";
 
 // ---------------------------------------------------------------------------
-// Connection settings. The token is kept in localStorage so it survives a
-// reload; the base URL is editable because a phone's Tailscale address is not
-// something this page can know, and it changes when the phone is off.
+// Connection. The server address is editable because a phone's address is not
+// something this page can know, and it changes whenever the phone is off.
 // ---------------------------------------------------------------------------
-const DEFAULTS = {
-  base: "http://100.101.227.77:8899",
-  token: ""
-};
-
-/** Matches EmbeddedServer.DEFAULT_PORT, so the hint stays right if the port ever changes. */
+const DEFAULTS = { base: "http://100.101.227.77:8899", token: "" };
 const PORT = 8899;
 
 const $ = (id) => document.getElementById(id);
-const baseEl = $("base"), tokenEl = $("token"), statusEl = $("status");
+const baseEl = $("base"), tokenEl = $("token"), statusEl = $("status"), dotEl = $("dot");
 
 baseEl.value = localStorage.getItem("star.base") || DEFAULTS.base;
 tokenEl.value = localStorage.getItem("star.token") || DEFAULTS.token;
 
-function base() { return baseEl.value.trim().replace(/\/+$/, ""); }
-function token() { return tokenEl.value.trim(); }
-
-function saveSettings() {
-  localStorage.setItem("star.base", baseEl.value.trim());
-  localStorage.setItem("star.token", token());
-}
+const base = () => baseEl.value.trim().replace(/\/+$/, "");
+const token = () => tokenEl.value.trim();
 
 function setStatus(text, kind) {
   statusEl.textContent = text;
-  statusEl.className = kind || "";
+  dotEl.className = "dot " + (kind || "off");
 }
 
-/**
- * Every request goes through here so auth and failures are reported the same
- * way everywhere. A bare 401 from a device that is simply off reads exactly
- * like a wrong token, so the two are told apart by hand.
- */
+/** Every request goes through here, so auth and failures read the same everywhere. */
 async function api(path, options = {}) {
   const url = base() + path;
-  const headers = { ...(options.headers || {}) };
+  const headers = Object.assign({}, options.headers || {});
   if (token()) headers["Authorization"] = "Bearer " + token();
   if (options.body) headers["Content-Type"] = "application/json";
 
   let res;
   try {
-    res = await fetch(url, { ...options, headers });
+    res = await fetch(url, Object.assign({}, options, { headers }));
   } catch (e) {
-    throw new Error("Cannot reach " + url + " — is the phone awake, the always-on host on, and is the address right?\n" + e.message);
+    throw new Error(
+      "Cannot reach " + url + " — is the phone awake, is the always-on host on, and is the " +
+      "address right?\n\n" + e.message
+    );
   }
 
   const text = await res.text();
@@ -211,164 +293,267 @@ async function api(path, options = {}) {
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
-let docs = null;      // /api/capabilities/docs
-let catalogue = null; // /api/capabilities
-let selected = null;
+let docs = null;        // /api/capabilities/docs
+let catalogue = null;   // /api/capabilities
+let tab = "overview";
+let groupFilter = "ALL";
+let hideOff = false;
+
+const TABS = [
+  { id: "overview", label: "Overview", count: () => null },
+  { id: "caps", label: "Capabilities", count: () => catalogue ? catalogue.count : null },
+  { id: "apps", label: "Apps", count: () => (docs ? (docs.appRoutes || []).length : null) },
+  { id: "docs", label: "Reference", count: () => null },
+];
+
+function specFor(id) { return (docs.capabilities || []).find((c) => c.id === id); }
+function entryFor(id) { return (catalogue.capabilities || []).find((c) => c.id === id); }
 
 // ---------------------------------------------------------------------------
-// Connection
+// Connect
 // ---------------------------------------------------------------------------
 async function connect() {
-  saveSettings();
-  setStatus("connecting…");
+  localStorage.setItem("star.base", baseEl.value.trim());
+  localStorage.setItem("star.token", token());
+
+  setStatus("connecting…", "warn");
   $("connect").disabled = true;
   try {
-    const [d, c] = await Promise.all([
-      api("/api/capabilities/docs"),
-      api("/api/capabilities"),
-    ]);
+    const [d, c] = await Promise.all([api("/api/capabilities/docs"), api("/api/capabilities")]);
     if (!d.ok || !c.ok) {
-      throw new Error(
-        (d.status === 401 ? "Unauthorized — the token is wrong. Copy it again from Settings → API access token."
-                          : "HTTP " + d.status) + "\n\n" + d.body
-      );
+      if (d.status === 401) {
+        throw new Error(
+          "Unauthorized. The token is wrong — copy it again from Settings → API access token. " +
+          "If you have never set one, open Settings on the phone and rotate it."
+        );
+      }
+      throw new Error("HTTP " + d.status + "\n\n" + d.body);
     }
     docs = JSON.parse(d.body);
     catalogue = JSON.parse(c.body);
-    setStatus("connected · " + catalogue.count + " capabilities", "ok");
-    renderList();
-    renderMain();
+    setStatus("connected", "on");
+    renderAll();
   } catch (e) {
     docs = null; catalogue = null;
-    setStatus("failed", "bad");
-    $("list").innerHTML = '<p class="hint" style="padding:9px">' + esc(e.message).replace(/\n/g, "<br>") + "</p>";
-    $("main").innerHTML = '<div class="empty">Not connected.</div>';
+    setStatus("offline", "bad");
+    renderOffline(e.message);
   } finally {
     $("connect").disabled = false;
   }
 }
 
-// ---------------------------------------------------------------------------
-// Sidebar
-// ---------------------------------------------------------------------------
-function renderList() {
-  const byId = Object.fromEntries((catalogue.capabilities || []).map(c => [c.id, c]));
-  const entries = catalogue.capabilities || [];
-  const withActions = new Set((docs.capabilities || []).map(c => c.id));
+function renderAll() {
+  const usable = (catalogue.capabilities || []).filter((c) => c.usable).length;
+  const withActions = (docs.capabilities || []).length;
+  $("brandSub").textContent =
+    usable + " ready · " + withActions + " with actions · port " + PORT;
 
-  const groups = new Map();
-  entries.forEach(c => {
-    const kind = withActions.has(c.id) ? "hasActions" : "noActions";
-    if (!groups.has(kind)) groups.set(kind, []);
-    groups.get(kind).push(c);
-  });
+  renderTabs();
+  renderOverview();
+  renderCapabilities();
+  renderApps();
+  renderDocs();
+  showTab(tab);
+}
+
+// ---------------------------------------------------------------------------
+// Tabs
+// ---------------------------------------------------------------------------
+function renderTabs() {
+  $("tabs").innerHTML = TABS.map((t) => {
+    const n = t.count();
+    return '<button class="tab' + (tab === t.id ? " on" : "") + '" data-tab="' + t.id + '">' +
+      esc(t.label) + (n !== null && n !== undefined ? '<span class="n">' + n + "</span>" : "") +
+      "</button>";
+  }).join("");
+}
+
+function showTab(id) {
+  tab = id;
+  document.querySelectorAll(".panel").forEach((p) => p.classList.remove("on"));
+  const panel = $("p-" + id);
+  if (panel) panel.classList.add("on");
+  document.querySelectorAll(".tab").forEach((t) =>
+    t.classList.toggle("on", t.dataset.tab === id)
+  );
+  window.scrollTo({ top: 0 });
+}
+
+// ---------------------------------------------------------------------------
+// Overview
+// ---------------------------------------------------------------------------
+function renderOverview() {
+  const all = catalogue.capabilities || [];
+  const usable = all.filter((c) => c.usable);
+  const switchedOff = all.filter((c) => !c.switchedOn);
+  const noProvider = all.filter((c) => !c.registered);
+  const actions = (docs.capabilities || []).reduce((n, c) => n + c.actions.length, 0);
 
   let html = "";
-  groups.forEach((list, kind) => {
-    html += '<h3>' + (kind === "hasActions" ? "With actions" : "No actions yet") + " (" + list.length + ")</h3>";
-    list.forEach(c => {
-      html += capRow(c, byId[c.id]);
-    });
+
+  html += '<div class="grid stats" style="margin-bottom:18px">' +
+    stat("Ready", usable.length, "of " + all.length + " capabilities") +
+    stat("Actions", actions, "callable from here or from curl") +
+    stat("Apps", (docs.appRoutes || []).length, "documented routes serving") +
+    stat("Switched off", switchedOff.length, "the API refuses these") +
+    "</div>";
+
+  html += '<div class="grid connect">';
+
+  html += '<div class="card"><div class="card-h">Master switch</div><div class="card-b">' +
+    '<label class="switch"><input type="checkbox" id="master"' +
+    (catalogue.masterEnabled ? " checked" : "") + ">" +
+    "<span>Allow API access</span></label>" +
+    '<p class="hint">When this is off the API refuses every capability with <code>403</code>, ' +
+    "whatever asks. Individual capabilities below have their own switches.</p>" +
+    "</div></div>";
+
+  html += '<div class="card"><div class="card-h">Connection</div><div class="card-b">' +
+    kv("Server", base()) + kv("Token", token() ? token().slice(0, 6) + "… (set)" : "not set") +
+    kv("Authentication", "Bearer token") +
+    '<div class="row" style="margin-top:12px">' +
+    '<button id="refresh">Refresh</button>' +
+    '<button id="rotateHint" class="ghost">Where is my token?</button>' +
+    "</div></div></div>";
+
+  if (noProvider.length) {
+    html += '<div class="card"><div class="card-h">No provider on this device</div><div class="card-b">' +
+      '<p class="hint" style="margin-top:0">These are registered as capabilities but have no ' +
+      "implementation here. The platform lists them anyway rather than pretending they do not " +
+      "exist, and offers no actions for them.</p><pre>" +
+      esc(noProvider.map((c) => c.displayName).join("\n")) + "</pre></div></div>";
+  }
+
+  if (switchedOff.length) {
+    html += '<div class="card"><div class="card-h">Switched off</div><div class="card-b">' +
+      '<p class="hint" style="margin-top:0">You have turned these off. Nothing can reach them, ' +
+      "from this page or from a script.</p><pre>" +
+      esc(switchedOff.map((c) => c.displayName).join("\n")) + "</pre></div></div>";
+  }
+
+  html += "</div>";
+  $("p-overview").innerHTML = html;
+}
+
+function stat(k, v, s) {
+  return '<div class="stat"><div class="k">' + esc(k) + '</div><div class="v">' + esc(v) +
+    '</div><div class="s">' + esc(s) + "</div></div>";
+}
+function kv(k, v) {
+  return '<div style="display:flex;justify-content:space-between;gap:12px;padding:5px 0;' +
+    'border-bottom:1px solid var(--border-soft)"><span class="muted">' + esc(k) +
+    '</span><code style="text-align:right;word-break:break-all">' + esc(v) + "</code></div>";
+}
+
+// ---------------------------------------------------------------------------
+// Capabilities, grouped
+// ---------------------------------------------------------------------------
+function groups() {
+  // The grouping is the platform's, not this page's: every capability declares its own.
+  const seen = [];
+  (catalogue.capabilities || []).forEach((c) => {
+    const g = c.group || "DEVICE";
+    if (!seen.some((x) => x.id === g)) seen.push({ id: g, name: c.groupName || g });
+  });
+  return seen;
+}
+
+function renderCapabilities() {
+  if (!catalogue) return;
+
+  const all = groups();
+  let html = "";
+
+  html += '<div class="row" style="margin-bottom:18px">' +
+    '<button class="chip' + (groupFilter === "ALL" ? " on" : "") + '" data-group="ALL">All</button>' +
+    all.map((g) => '<button class="chip' + (groupFilter === g.id ? " on" : "") +
+      '" data-group="' + esc(g.id) + '">' + esc(g.name) + "</button>").join("") +
+    '<button class="chip' + (hideOff ? " on" : "") + '" data-ready="1">' +
+    (hideOff ? "ready only" : "include switched-off") + "</button>" +
+    "</div>";
+
+  all.forEach((g) => {
+    if (groupFilter !== "ALL" && groupFilter !== g.id) return;
+
+    let members = (catalogue.capabilities || []).filter((c) => (c.group || "DEVICE") === g.id);
+    const total = members.length;
+    if (hideOff) members = members.filter((c) => c.switchedOn);
+    if (!members.length) return;
+
+    const meta = (catalogue.groups || []).find((x) => x.id === g.id);
+    const ready = members.filter((c) => c.usable).length;
+
+    html += '<div class="group"><div class="group-h"><h2>' + esc(g.name) + "</h2><p>" +
+      esc(meta ? meta.blurb : "") + " · " + ready + "/" + total + " ready</p></div>" +
+      '<div class="caps">' + members.map(capCard).join("") + "</div></div>";
   });
 
-  $("list").innerHTML = html;
-  $("master").checked = !!catalogue.masterEnabled;
+  $("p-caps").innerHTML = html;
 }
 
-function capRow(c) {
-  const state = !c.switchedOn ? "off" : (c.usable ? "usable" : "switched");
-  const n = ((docs.capabilities || []).find(d => d.id === c.id)?.actions || []).length;
-  return '<div class="cap' + (selected === c.id ? " sel" : "") + '" data-cap="' + esc(c.id) + '">' +
-           '<span class="dot ' + state + '" title="' + esc(c.status) + '"></span>' +
-           '<span class="name">' + esc(c.displayName) + '</span>' +
-           (n ? '<span class="badge">' + n + '</span>' : '') +
-         '</div>';
+function capCard(c) {
+  const spec = specFor(c.id);
+  const n = spec ? spec.actions.length : 0;
+
+  let cls = c.usable ? "on" : (c.switchedOn ? "warn" : "off");
+  let title = c.status === "permission_required"
+    ? "Needs a permission you have not granted"
+    : (c.registered ? (c.usable ? "Ready" : "Not usable") : "No provider on this device");
+
+  let html = '<div class="cap">';
+  html += '<div class="cap-h"><span class="dot ' + cls + '" title="' + esc(title) + '"></span>' +
+    '<span class="nm">' + esc(c.displayName) + "</span>" +
+    '<label class="switch" title="Switch this capability on or off">' +
+    '<input type="checkbox" data-toggle="' + esc(c.id) + '"' +
+    (c.switchedOn ? " checked" : "") + "></label></div>";
+  html += '<div class="id">' + esc(c.id) + "</div>";
+  html += '<p class="desc">' + esc(c.description || title) + "</p>";
+
+  html += '<div class="badges">' +
+    '<span class="badge">' + esc(c.status.replace(/_/g, " ")) + "</span>" +
+    (n ? '<span class="badge act">' + n + " action" + (n === 1 ? "" : "s") + "</span>" : "") +
+    (c.requiredPermissions && c.requiredPermissions.length
+      ? '<span class="badge">' + c.requiredPermissions.length + " permission" +
+        (c.requiredPermissions.length === 1 ? "" : "s") + "</span>"
+      : "") +
+    "</div>";
+
+  if (n) {
+    html += '<details class="act" style="margin-top:11px"><summary>' +
+      '<span class="nm">actions</span><span class="ds">' + n + " available</span></summary>" +
+      '<div class="act-b"><div class="acts">' +
+      spec.actions.map((a) => actionCard(c.id, a)).join("") +
+      "</div></div></details>";
+  } else {
+    html += '<p class="hint" style="margin-top:10px">No actions yet. It appears here the moment ' +
+      "it has one.</p>";
+  }
+
+  html += "</div>";
+  return html;
 }
 
-function renderListState(c) {
-  const row = document.querySelector('.cap[data-cap="' + cssEscape(c.id) + '"]');
-  if (row) row.outerHTML = capRow(c);
-}
-
-function cssEscape(s) { return (s || "").replace(/["\\]/g, "\\$&"); }
-
-// ---------------------------------------------------------------------------
-// Main pane
-// ---------------------------------------------------------------------------
-function renderMain() {
-  if (!selected) {
-    $("main").innerHTML = '<div class="empty">Pick a capability on the left.</div>';
-    return;
-  }
-  const cat = (catalogue.capabilities || []).find(c => c.id === selected);
-  const spec = (docs.capabilities || []).find(c => c.id === selected);
-  const actions = spec ? spec.actions : [];
-
-  if (!actions.length) {
-    $("main").innerHTML =
-      '<h2 style="margin-top:0">' + esc(cat ? cat.displayName : selected) + '</h2>' +
-      '<p class="muted">' + esc(cat ? cat.description : "") + '</p>' +
-      '<div class="empty">This capability is registered but exposes no actions yet.<br>' +
-      'It will appear here the moment it has one.</div>';
-    return;
-  }
-
-  let html = '<h2 style="margin-top:0">' + esc(spec.displayName) + '</h2>' +
-             '<p class="muted">' + esc(spec.summary) + '</p>';
-
-  if (cat && !cat.usable) {
-    html += '<pre class="bad">' + esc(statusExplain(cat)) + '</pre>';
-  }
-
-  actions.forEach(a => { html += actionCard(a); });
-
-  const routes = (docs.appRoutes || []).filter(r => r.app === selected);
-  if (routes.length) {
-    html += '<hr><h3 style="margin-top:0">Endpoints this App publishes</h3>';
-    routes.forEach(r => {
-      html += '<pre>' + esc(r.path) + '\n' + esc(r.summary) + '</pre>';
-    });
-  }
-
-  $("main").innerHTML = html;
-}
-
-function statusExplain(c) {
-  if (!c.switchedOn) return "Switched off.\nThe API refuses to touch it — that is the switch doing its job. Switch it on to use it.";
-  if (c.status === "permission_required") {
-    return "Missing permission" + (c.requiredPermissions || []).length + ":\n" +
-      (c.requiredPermissions || []).map(p => "  · " + p).join("\n") +
-      "\n\nSMS and Call history cannot be granted from a runtime dialog.\n" +
-      "Settings → Apps → Special app access → SMS and Call history";
-  }
-  if (c.status === "disabled_by_user") return "Disabled in Android settings.";
-  if (c.status === "unavailable") return "No provider is registered on this device.";
-  return "Not usable right now.";
-}
-
-function actionCard(a) {
-  const open = a.params && a.params.length ? "" : "";
-  return '<details class="action"' + ' id="act-' + esc(a.name) + '">' +
-    '<summary><span class="name">' + esc(a.name) + '</span>' +
-      (a.requiresUserConsent ? '<span class="consent">needs consent</span>' : '') +
-      '<span class="desc">' + esc(a.summary) + '</span></summary>' +
-    '<div class="body">' + paramsHtml(a) +
-      '<div class="row">' +
-        '<button class="primary" data-run="' + esc(a.name) + '">Run</button>' +
-        '<button class="tiny" data-example="' + esc(a.name) + '">Fill from example</button>' +
-        '<span class="hint" style="margin:0">POST /api/capabilities/invoke</span>' +
-      '</div>' +
-      '<pre id="out-' + esc(a.name) + '" style="display:none"></pre>' +
-      '<details style="margin-top:10px"><summary class="muted" style="cursor:pointer;font-size:12px">documentation</summary>' +
-        '<pre>' + esc(a.exampleRequest) + '</pre>' +
-        (a.exampleResponse ? '<pre>' + esc(a.exampleResponse) + '</pre>' : '') +
-      '</details>' +
-    '</div></details>';
+function actionCard(capId, a) {
+  const id = "act--" + capId + "--" + a.name;
+  return '<details class="act" id="' + esc(id) + '">' +
+    "<summary><span class=\"nm\">" + esc(a.name) + "</span>" +
+    (a.requiresUserConsent ? '<span class="note">consent</span>' : "") +
+    '<span class="ds">' + esc(a.summary) + "</span></summary>" +
+    '<div class="act-b">' + paramsHtml(a) +
+    '<div class="row" style="margin-top:13px">' +
+    '<button class="primary" data-run="' + esc(capId) + "|" + esc(a.name) + '">Run</button>' +
+    '<button data-example="' + esc(capId) + "|" + esc(a.name) + '">Fill from example</button>' +
+    "</div>" +
+    '<pre id="out--' + esc(capId) + "--" + esc(a.name) + '" style="display:none"></pre>' +
+    '<details style="margin-top:11px"><summary class="muted" style="cursor:pointer;font-size:12px">' +
+    "documentation</summary><pre>" + esc(a.exampleRequest) + "</pre>" +
+    (a.exampleResponse ? "<pre>" + esc(a.exampleResponse) + "</pre>" : "") + "</details>" +
+    "</div></details>";
 }
 
 function paramsHtml(a) {
   if (!a.params || !a.params.length) return '<p class="hint">No parameters.</p>';
-  return a.params.map(p => paramHtml(a.name, p)).join("");
+  return a.params.map((p) => paramHtml(a.name, p)).join("");
 }
 
 function paramHtml(action, p) {
@@ -377,53 +562,57 @@ function paramHtml(action, p) {
 
   if (p.type === "boolean") {
     control = '<label class="bool"><input type="checkbox" id="' + esc(id) + '" data-type="boolean"> ' +
-              esc(p.example !== undefined && p.example !== null ? String(p.example) : "false") + "</label>";
+      esc(p.example !== undefined && p.example !== null ? String(p.example) : "false") + "</label>";
   } else if (p.type === "array") {
-    control = '<textarea id="' + esc(id) + '" data-type="array" spellcheck="false" ' +
-              'placeholder=\'' + esc(p.example || "[]") + "'></textarea>";
+    control = '<textarea id="' + esc(id) + '" data-type="array" spellcheck="false" placeholder=\'' +
+      esc(p.example || "[]") + "'></textarea>";
   } else {
     const t = (p.type === "integer" || p.type === "number") ? "number" : "text";
-    control = '<input type="' + t + '" id="' + esc(id) + '" data-type="' + t + '" ' +
-              'placeholder=\'' + esc(p.example || "") + "'>";
+    control = '<input type="' + t + '" id="' + esc(id) + '" data-type="' + t + '" placeholder=\'' +
+      esc(p.example || "") + "'>";
   }
 
-  return '<div class="param">' +
-      '<div class="top"><span class="pname">' + esc(p.name) + "</span>" +
-        '<span class="ptype">' + esc(p.type) + "</span>" +
-        (p.required ? '<span class="req">required</span>' : "") + "</div>" +
-      '<div class="ph">' + esc(p.description) + "</div>" + control +
-    "</div>";
+  return '<div class="p"><div class="top"><span class="pn">' + esc(p.name) + "</span>" +
+    '<span class="pt">' + esc(p.type) + "</span>" +
+    (p.required ? '<span class="rq">required</span>' : "") + "</div>" +
+    '<div class="ph">' + esc(p.description) + "</div>" + control + "</div>";
 }
 
 // ---------------------------------------------------------------------------
 // Running an action
 // ---------------------------------------------------------------------------
-async function run(capId, actionName) {
-  const spec = (docs.capabilities || []).find(c => c.id === capId);
-  const action = spec.actions.find(a => a.name === actionName);
-
+function collectPayload(capId, actionName) {
+  const spec = specFor(capId);
+  const action = spec.actions.find((a) => a.name === actionName);
   const payload = { capability: capId, action: actionName };
-  (action.params || []).forEach(p => {
+
+  for (const p of action.params || []) {
     const el = document.getElementById(actionName + "::" + p.name);
-    if (!el) return;
-    if (p.type === "boolean") { payload[p.name] = el.checked; return; }
+    if (!el) continue;
+    if (p.type === "boolean") { payload[p.name] = el.checked; continue; }
     const v = el.value.trim();
-    if (v === "") return;                       // omitted, not empty
+    if (v === "") continue;                       // omitted, not empty
     if (p.type === "array") {
       try { payload[p.name] = JSON.parse(v); }
-      catch (e) { return showOut(actionName, false, "That field must be valid JSON:\n" + e.message); }
-      return;
+      catch (e) { return { error: "'" + p.name + "' must be valid JSON:\n" + e.message }; }
+      continue;
     }
     if (p.type === "integer" || p.type === "number") {
       const n = Number(v);
-      if (Number.isNaN(n)) return showOut(actionName, false, "'" + p.name + "' must be a number.");
+      if (Number.isNaN(n)) return { error: "'" + p.name + "' must be a number." };
       payload[p.name] = n;
-      return;
+      continue;
     }
     payload[p.name] = v;
-  });
+  }
+  return { payload };
+}
 
-  const btn = document.querySelector('[data-run="' + cssEscape(actionName) + '"]');
+async function run(capId, actionName) {
+  const { payload, error } = collectPayload(capId, actionName);
+  if (error) return showOut(capId, actionName, false, error);
+
+  const btn = document.querySelector('[data-run="' + cssEscape(capId + "|" + actionName) + '"]');
   if (btn) { btn.disabled = true; btn.textContent = "Running…"; }
 
   try {
@@ -431,31 +620,31 @@ async function run(capId, actionName) {
       method: "POST",
       body: JSON.stringify(payload),
     });
-    showOut(actionName, res.ok, (res.ok ? "" : "HTTP " + res.status + "\n\n") + res.body);
-    // A toggle or a run can change what is usable, so refresh the picture.
-    refreshCatalogue();
+    showOut(capId, actionName, res.ok, (res.ok ? "" : "HTTP " + res.status + "\n\n") + res.body);
+    await refreshCatalogue();
   } catch (e) {
-    showOut(actionName, false, e.message);
+    showOut(capId, actionName, false, e.message);
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = "Run"; }
   }
 }
 
-function showOut(actionName, ok, text) {
-  const pre = document.getElementById("out-" + actionName);
+function showOut(capId, actionName, ok, text) {
+  const pre = document.getElementById("out--" + capId + "--" + actionName);
+  if (!pre) return;
   pre.style.display = "block";
   pre.className = ok ? "ok" : "bad";
   pre.textContent = text;
 }
 
-/** Pre-fill an action's form from its documented example. */
+/** Pre-fill an action's form from its own documented example. */
 function fillExample(capId, actionName) {
-  const spec = (docs.capabilities || []).find(c => c.id === capId);
-  const action = spec.actions.find(a => a.name === actionName);
+  const spec = specFor(capId);
+  const action = spec.actions.find((a) => a.name === actionName);
   let example = {};
   try { example = JSON.parse(action.exampleRequest); } catch (_) {}
 
-  (action.params || []).forEach(p => {
+  (action.params || []).forEach((p) => {
     const el = document.getElementById(actionName + "::" + p.name);
     if (!el) return;
     const v = example[p.name];
@@ -463,6 +652,9 @@ function fillExample(capId, actionName) {
     if (p.type === "boolean") el.checked = !!v;
     else el.value = (p.type === "array") ? JSON.stringify(v, null, 2) : String(v);
   });
+
+  const d = document.getElementById("act--" + capId + "--" + actionName);
+  if (d) d.open = true;
 }
 
 async function refreshCatalogue() {
@@ -470,17 +662,12 @@ async function refreshCatalogue() {
     const c = await api("/api/capabilities");
     if (c.ok) {
       catalogue = JSON.parse(c.body);
-      renderList();
-      if (selected) renderMain();
+      renderTabs(); renderOverview(); renderCapabilities();
     }
   } catch (_) {}
 }
 
-// ---------------------------------------------------------------------------
-// Toggles
-// ---------------------------------------------------------------------------
 async function setSwitch(capId, enabled) {
-  saveSettings();
   try {
     const res = await api("/api/capabilities/toggle", {
       method: "POST",
@@ -494,78 +681,153 @@ async function setSwitch(capId, enabled) {
 }
 
 // ---------------------------------------------------------------------------
+// Apps
+// ---------------------------------------------------------------------------
+function renderApps() {
+  const routes = docs.appRoutes || [];
+  if (!routes.length) {
+    $("p-apps").innerHTML =
+      '<div class="empty">No App is publishing endpoints.<br>' +
+      '<span class="hint">An App publishes routes by implementing <code>AppServer</code>. ' +
+      "They appear here, generated from the App's own declarations.</span></div>";
+    return;
+  }
+
+  const byApp = {};
+  routes.forEach((r) => { (byApp[r.app] = byApp[r.app] || []).push(r); });
+
+  $("p-apps").innerHTML = Object.keys(byApp).map((app) =>
+    '<div class="group"><div class="group-h"><h2>' + esc(app) + "</h2><p>" +
+    byApp[app].length + " route" + (byApp[app].length === 1 ? "" : "s") + "</p></div>" +
+    '<div class="caps">' + byApp[app].map((r) =>
+      '<div class="cap"><div class="id">' + esc(r.path) + "</div>" +
+      '<p class="desc">' + esc(r.summary) + "</p>" +
+      (r.exampleRequest ? "<pre>" + esc(r.exampleRequest) + "</pre>" : "") +
+      "</div>").join("") + "</div></div>").join("");
+}
+
+// ---------------------------------------------------------------------------
+// Reference
+// ---------------------------------------------------------------------------
+function renderDocs() {
+  let html = "";
+
+  html += '<div class="card" style="margin-bottom:16px"><div class="card-h">Endpoints</div>' +
+    '<div class="card-b">' +
+    ((docs.endpoints || []).map((e) =>
+      '<div style="display:flex;gap:12px;padding:5px 0;border-bottom:1px solid var(--border-soft)">' +
+      '<code style="min-width:44px;color:var(--accent)">' + esc(e.method) + "</code>" +
+      "<code style=\"flex:1\">" + esc(e.path) + "</code>" +
+      '<span class="muted" style="flex:1">' + esc(e.summary) + "</span></div>").join("")) +
+    "</div></div>";
+
+  html += '<div class="card" style="margin-bottom:16px"><div class="card-h">Calling it from curl</div>' +
+    '<div class="card-b"><p class="hint" style="margin-top:0">Everything this page does, in one ' +
+    "line. The token is the same one you pasted above.</p><pre>" + esc(
+      "# read this page's own reference\n" +
+      "curl -H \"Authorization: Bearer $TOKEN\" \\\n" +
+      "  " + base() + "/api/capabilities/docs\n\n" +
+      "# list every capability and whether it is usable\n" +
+      "curl -H \"Authorization: Bearer $TOKEN\" \\\n" +
+      "  " + base() + "/api/capabilities\n\n" +
+      "# post a notification\n" +
+      "curl -H \"Authorization: Bearer $TOKEN\" \\\n" +
+      "  -X POST " + base() + "/api/capabilities/invoke \\\n" +
+      "  -d '{\"capability\":\"NOTIFICATIONS\",\"action\":\"post\",\"title\":\"Hello\"}'\n"
+    ) + "</pre></div></div>";
+
+  html += '<div class="card"><div class="card-h">Raw reference</div><div class="card-b">' +
+    '<p class="hint" style="margin-top:0">Exactly what the phone serves. This page is built from ' +
+    "the same document, so it cannot describe anything the phone does not have.</p><pre>" +
+    esc(JSON.stringify(docs, null, 2)) + "</pre></div></div>";
+
+  $("p-docs").innerHTML = html;
+}
+
+// ---------------------------------------------------------------------------
+// Offline
+// ---------------------------------------------------------------------------
+function renderOffline(message) {
+  const target = base() + "/";
+  const fromDisk = location.protocol === "file:";
+
+  const body = fromDisk
+    ? "You opened this copy from disk. Browsers ask permission before a page on disk may call " +
+      "another server, and this page needs to do that. Open it from the phone instead — the phone " +
+      "serves the same file, where page and API share an origin."
+    : message;
+
+  const html =
+    '<div class="empty" style="max-width:640px;margin:70px auto;text-align:left">' +
+    '<h2 style="margin:0 0 10px;font-size:20px">' +
+    (fromDisk ? "Open this from the phone" : "Not connected") + "</h2>" +
+    '<div class="' + (fromDisk ? "warnbox" : "errbox") + '">' + esc(body) + "</div>" +
+    '<p style="margin-top:16px"><a href="' + esc(target) + '" style="font-size:15px">' +
+    esc(target) + "</a></p>" +
+    '<p class="hint">On the phone\'s own browser use <code>http://localhost:' + PORT +
+    "/</code>. The token lives in Settings → API access token.</p></div>";
+
+  $("p-overview").innerHTML = html;
+  $("p-caps").innerHTML = $("p-apps").innerHTML = $("p-docs").innerHTML = html;
+  $("tabs").innerHTML = "";
+  document.querySelectorAll(".panel").forEach((p) => p.classList.remove("on"));
+  $("p-overview").classList.add("on");
+}
+
+// ---------------------------------------------------------------------------
 // Events
 // ---------------------------------------------------------------------------
 $("connect").addEventListener("click", connect);
-
 $("reveal").addEventListener("click", () => {
   tokenEl.type = tokenEl.type === "password" ? "text" : "password";
   $("reveal").textContent = tokenEl.type === "password" ? "Show" : "Hide";
 });
 
-$("master").addEventListener("change", (e) => setSwitch(null, e.target.checked));
-
-$("list").addEventListener("click", (e) => {
-  const row = e.target.closest(".cap");
-  if (!row) return;
-  selected = row.dataset.cap;
-  renderList();
-  renderMain();
+$("tabs").addEventListener("click", (e) => {
+  const t = e.target.closest("[data-tab]");
+  if (t) showTab(t.dataset.tab);
 });
 
-$("main").addEventListener("click", (e) => {
+document.querySelector("main").addEventListener("click", (e) => {
   const runBtn = e.target.closest("[data-run]");
-  if (runBtn) { run(selected, runBtn.dataset.run); return; }
+  if (runBtn) {
+    const [cap, action] = runBtn.dataset.run.split("|");
+    return run(cap, action);
+  }
   const exBtn = e.target.closest("[data-example]");
   if (exBtn) {
-    fillExample(selected, exBtn.dataset.example);
-    const d = document.getElementById("act-" + exBtn.dataset.example);
-    if (d) d.open = true;
+    const [cap, action] = exBtn.dataset.example.split("|");
+    return fillExample(cap, action);
   }
+  const chip = e.target.closest("[data-group]");
+  if (chip) { groupFilter = chip.dataset.group; return renderCapabilities(); }
+  if (e.target.closest("[data-ready]")) { hideOff = !hideOff; return renderCapabilities(); }
+  if (e.target.id === "master") return setSwitch(null, e.target.checked);
+  if (e.target.id === "refresh") return connect();
 });
 
-// ---------------------------------------------------------------------------
-// Opened from disk?
-//
-// A file:// page calling the phone cannot work: the browser sends an OPTIONS preflight for the
-// Authorization header, and the phone's server does not answer one. Say so with the link that does
-// work, rather than leaving someone staring at a page that silently fails.
-// ---------------------------------------------------------------------------
-function warnIfOpenedFromDisk() {
-  if (location.protocol !== "file:") return;
+document.querySelector("main").addEventListener("change", (e) => {
+  const t = e.target.closest("[data-toggle]");
+  if (t) setSwitch(t.dataset.toggle, t.checked);
+});
 
-  const target = base() + "/";
-  $("status").className = "bad";
-  $("main").innerHTML =
-    '<div class="empty" style="max-width:640px;margin:60px auto;text-align:left">' +
-      '<h2 style="margin-top:0">Open this from the phone, not from disk</h2>' +
-      '<p class="muted">Browsers block this page when it is opened from a file, because the phone ' +
-      'does not answer the preflight request a cross-origin call needs. The phone serves the same ' +
-      'page itself, where it and the API share an origin and no preflight happens.</p>' +
-      '<p><a href="' + esc(target) + '" style="font-size:15px">' + esc(target) + '</a></p>' +
-      '<p class="hint">On the phone’s own browser, use <code>http://localhost:' +
-      PORT + '/</code> instead.</p>' +
-    "</div>";
-  $("list").innerHTML = "";
-}
-
-// ---------------------------------------------------------------------------
 function esc(s) {
   return String(s === undefined || s === null ? "" : s)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
+function cssEscape(s) { return String(s).replace(/["\\]/g, "\\$&"); }
 
-baseEl.addEventListener("keydown", e => { if (e.key === "Enter") connect(); });
-tokenEl.addEventListener("keydown", e => { if (e.key === "Enter") connect(); });
+baseEl.addEventListener("keydown", (e) => { if (e.key === "Enter") connect(); });
+tokenEl.addEventListener("keydown", (e) => { if (e.key === "Enter") connect(); });
 
-// Reconnect automatically on load so a reload is one less thing to do.
 if (location.protocol === "file:") {
-  warnIfOpenedFromDisk();
+  renderOffline("");
 } else if (tokenEl.value) {
   connect();
 } else {
-  setStatus("enter a token, then Connect");
+  setStatus("enter a token");
+  renderOffline("Paste the token from Settings → API access token, then press Connect.");
 }
 </script>
 </body>

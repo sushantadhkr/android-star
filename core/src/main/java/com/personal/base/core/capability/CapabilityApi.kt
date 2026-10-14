@@ -109,6 +109,8 @@ class CapabilityApi(
                             put("id", spec.type.name)
                             put("displayName", spec.type.displayName)
                             put("description", spec.type.description)
+                            put("group", spec.type.group.name)
+                            put("groupName", spec.type.group.displayName)
                             put("summary", spec.summary)
                             put(
                                 "requiredPermissions",
@@ -276,6 +278,19 @@ class CapabilityApi(
     private fun catalogueSnapshot(): JsonObject = buildJsonObject {
         put("masterEnabled", catalogue.masterEnabled.value)
         put("count", catalogue.entries.value.size)
+        // Published so a client can lay the capabilities out by purpose without hardcoding a
+        // grouping of its own that would drift from the platform's.
+        put("groups", buildJsonArray {
+            CapabilityGroup.entries.forEach { group ->
+                add(
+                    buildJsonObject {
+                        put("id", group.name)
+                        put("name", group.displayName)
+                        put("blurb", group.blurb)
+                    }
+                )
+            }
+        })
         put(
             "capabilities",
             buildJsonArray {

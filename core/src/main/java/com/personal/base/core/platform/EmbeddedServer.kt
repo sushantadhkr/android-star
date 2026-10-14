@@ -218,25 +218,31 @@ class EmbeddedServer(
 
                 val request = ServerRequest(method, path, body, headers)
 
-                // Authorisation is enforced before routing, so no route can ship unauthenticated.
-                // Only the explicitly declared public paths skip it, and they are matched exactly.
-                val denied = if (request.path in publicPaths) {
-                    null
+                // A CORS preflight carries no credentials — that is what a preflight is — so it
+                // must be answered before authorisation, or no browser could ever call this API
+                // from another origin. It runs nothing and returns no body: it only says which
+                // methods and headers a real request would be allowed to use.
+                //
+                // Answered rather than returned early so there is no way for a preflight to fall
+                // through into routing — which would let a browser's OPTIONS request invoke a
+                // capability for real.
+                if (method.equals("OPTIONS", ignoreCase = true)) {
+                    writeResponse(writer, ServerResponse(204, "text/plain", ""), preflight = true)
                 } else {
-                    authorizer?.invoke(request)
-                }
-                val response = denied
-                    ?: routeHandlers[path]?.invoke(request)
-                    ?: ServerResponse(404, "application/json", """{"error":"Not Found"}""")
+                    // Authorisation is enforced before routing, so no route can ship
+                    // unauthenticated. Only the explicitly declared public paths skip it, and
+                    // they are matched exactly.
+                    val denied = if (request.path in publicPaths) {
+                        null
+                    } else {
+                        authorizer?.invoke(request)
+                    }
+                    val response = denied
+                        ?: routeHandlers[path]?.invoke(request)
+                        ?: ServerResponse(404, "application/json", """{"error":"Not Found"}""")
 
-                val bytes = response.body.toByteArray()
-                writer.print("HTTP/1.1 ${response.status} ${statusText(response.status)}\r\n")
-                writer.print("Content-Type: ${response.contentType}\r\n")
-                writer.print("Content-Length: ${bytes.size}\r\n")
-                writer.print("Access-Control-Allow-Origin: *\r\n")
-                writer.print("Connection: close\r\n\r\n")
-                writer.print(response.body)
-                writer.flush()
+                    writeResponse(writer, response, preflight = false)
+                }
             }
         } catch (e: Exception) {
             // A dropped client is normal and not worth a line, but anything else is exactly the
@@ -247,13 +253,44 @@ class EmbeddedServer(
         }
     }
 
+    private fun writeResponse(writer: PrintWriter, response: ServerResponse, preflight: Boolean) {
+        val bytes = response.body.toByteArray()
+        writer.print("HTTP/1.1 ${response.status} ${statusText(response.status)}\r\n")
+        writer.print("Content-Type: ${response.contentType}\r\n")
+        writer.print("Content-Length: ${bytes.size}\r\n")
+        // Same-origin callers never see this. It exists so the console also works opened from disk,
+        // where the browser asks permission first. Every endpoint still requires the bearer token,
+        // so this grants permission to attempt a call and nothing more.
+        writer.print("Access-Control-Allow-Origin: *\r\n")
+        if (preflight) {
+            writer.print("Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n")
+            writer.print("Access-Control-Allow-Headers: Authorization, Content-Type\r\n")
+            writer.print("Access-Control-Max-Age: 86400\r\n")
+        }
+        writer.print("Connection: close\r\n\r\n")
+        writer.print(response.body)
+        writer.flush()
+    }
+
+    /**
+     * The reason phrase for a status.
+     *
+     * Anything unlisted used to fall through to "OK", putting `HTTP/1.1 401 OK` on the wire.
+     * Browsers ignore it, but curl output and anyone reading a packet log are misled by it.
+     */
     private fun statusText(status: Int) = when (status) {
         200 -> "OK"
+        204 -> "No Content"
         400 -> "Bad Request"
+        401 -> "Unauthorized"
+        403 -> "Forbidden"
         404 -> "Not Found"
+        405 -> "Method Not Allowed"
+        409 -> "Conflict"
         500 -> "Internal Server Error"
+        501 -> "Not Implemented"
         503 -> "Service Unavailable"
-        else -> "OK"
+        else -> "Status $status"
     }
 
     fun stop() {

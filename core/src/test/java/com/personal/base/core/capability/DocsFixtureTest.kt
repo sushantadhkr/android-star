@@ -33,6 +33,8 @@ class DocsFixtureTest {
                             put("id", spec.type.name)
                             put("displayName", spec.type.displayName)
                             put("description", spec.type.description)
+                            put("group", spec.type.group.name)
+                            put("groupName", spec.type.group.displayName)
                             put("summary", spec.summary)
                             put("requiredPermissions", buildJsonArray {
                                 spec.type.requiredPermissions.forEach {

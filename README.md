@@ -362,31 +362,29 @@ surface as working forms.
 
 | | |
 |---|---|
-| **Server** | Editable in the page. Defaults to the phone's Tailscale address |
-| **Token** | From Settings → API access token. Kept in `localStorage`, never sent anywhere but your phone |
-| **Sidebar** | Every capability, split by whether it has actions, with a live status dot |
-| **Actions** | A form per action, built from its own declared parameters |
-| **Fill from example** | Pre-fills the form from the documented example request |
-| **Switches** | Per-capability and master toggles, straight from the sidebar |
+| **Overview** | Counts, the master switch, and anything switched off or missing a provider |
+| **Capabilities** | Grouped by purpose, each with its own switch and its actions as forms |
+| **Apps** | Endpoints published by Apps that serve |
+| **Reference** | The endpoints, ready-made curl, and the raw document the phone serves |
 
-**Why it is served rather than opened from disk:** a `file://` page cannot talk to the phone. The
-browser sends an `OPTIONS` preflight for the `Authorization` header and the server does not answer
-one, so the request never leaves. Served from the phone, the page and the API share an origin, so no
-preflight happens and no CORS configuration is needed or wanted. Opening the repository copy from
-disk now says exactly that, and links to the address that works.
+The grouping is **the platform's**, not the page's: every capability declares a `CapabilityGroup`
+with no default value, so a new capability that forgets where it belongs is a compile error rather
+than a section that quietly never appears. `/api/capabilities` publishes the groups alongside the
+capabilities, so any client lays them out the same way.
 
-The one path served without a token is the console itself, because a browser cannot attach an
-`Authorization` header to a plain navigation — the page could otherwise never load, and could never
-show the form that asks for the token. It is a static page holding no secrets, matched exactly
-rather than by prefix, and **every endpoint it drives still requires the token**.
+It also works opened from disk, now that the server answers the browser's preflight. A preflight
+runs nothing and returns no body — it only says which methods a real request may use — so answering
+it grants permission to *attempt* a call, and every endpoint still requires the bearer token.
+Without it, a browser blocks every cross-origin request before it is ever sent.
 
 `index.html` at the repository root is the single editable copy. A Gradle task copies it into the
 APK's assets on every build, and the generated copy is gitignored — so there is no second version of
 the truth to forget to update.
 
-`tools/check-console.js` renders the page against the real docs payload and checks that every action
-gets a control for each of its parameters, that a capability without actions invents none, that a
-hostile capability name cannot inject HTML, and that the served asset cannot drift from the source.
+`tools/check-console.js` renders the page against the real docs payload and checks that tabs and
+groups build, that every capability lands under its declared group, that every action gets a
+control for each of its parameters, that a capability without actions invents none, that a hostile
+capability name cannot inject HTML, and that the served asset cannot drift from the source.
 Regenerate the fixture with `./gradlew :core:testDebugUnitTest --tests '*DocsFixtureTest'`.
 
 ### SMS and Call history
