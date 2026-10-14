@@ -23,7 +23,12 @@ enum class NavigationDestination(
     SETTINGS("Settings", Icons.Default.Settings)
 }
 
-/** Screens reachable from within a top-level page rather than from the page bar. */
-enum class OverlayDestination {
-    CAPABILITIES
+/**
+ * Screens reachable from within a top-level page rather than from the page bar.
+ *
+ * An overlay behaves as a page of its own: the page bar is hidden while it is open, and it carries
+ * its own title so the header never claims to be showing something else.
+ */
+enum class OverlayDestination(val title: String) {
+    CAPABILITIES("Capabilities")
 }

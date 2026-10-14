@@ -5,7 +5,9 @@ import android.content.Context
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
@@ -114,6 +116,12 @@ fun MainPlatformScreen(
     val activeAppId by container.appManager.activeAppId.collectAsState()
     val activeApp = activeAppId?.let { container.appManager.instanceOf(it) }
 
+    // Back closes an open overlay instead of leaving the app. Without this the system back button
+    // would exit the platform while a sub-page was still open.
+    BackHandler(enabled = overlay != null) {
+        overlay = null
+    }
+
     // 3. Full-Screen App Renderer (when a running App is launched)
     if (activeApp != null) {
         activeApp!!.AppContent(
@@ -123,41 +131,61 @@ fun MainPlatformScreen(
         return
     }
 
+    // An overlay is a page in its own right: it takes over the shell, so the page bar is hidden
+    // and the header names the page actually being shown.
+    val activeOverlay = overlay
+    val headerTitle = if (activeOverlay != null) {
+        activeOverlay.title
+    } else {
+        currentDestination.title
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
                 title = {
                     Text(
-                        text = "Android Star",
+                        text = headerTitle,
                         fontWeight = FontWeight.Bold
                     )
                 },
+                navigationIcon = {
+                    // Only offered when there is somewhere to go back to.
+                    if (activeOverlay != null) {
+                        IconButton(onClick = { overlay = null }) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        }
+                    }
+                },
                 actions = {
-                    if (isLockEnabled) {
+                    if (isLockEnabled && activeOverlay == null) {
                         IconButton(onClick = { container.biometricProvider.lockNow() }) {
                             Icon(Icons.Default.Lock, contentDescription = "Lock Device")
                         }
                     }
                     // Overflow: platform surfaces reached from within a page rather than the bar.
-                    Box {
-                        IconButton(onClick = { overflowOpen = true }) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "More")
-                        }
-                        DropdownMenu(
-                            expanded = overflowOpen,
-                            onDismissRequest = { overflowOpen = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Capabilities") },
-                                leadingIcon = {
-                                    Icon(Icons.Default.Extension, contentDescription = null)
-                                },
-                                onClick = {
-                                    overflowOpen = false
-                                    overlay = OverlayDestination.CAPABILITIES
-                                }
-                            )
+                    // Hidden on an overlay, since its only entry is the page already open.
+                    if (activeOverlay == null) {
+                        Box {
+                            IconButton(onClick = { overflowOpen = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "More")
+                            }
+                            DropdownMenu(
+                                expanded = overflowOpen,
+                                onDismissRequest = { overflowOpen = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Capabilities") },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Extension, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        overflowOpen = false
+                                        overlay = OverlayDestination.CAPABILITIES
+                                    }
+                                )
+                            }
                         }
                     }
                 },
@@ -168,23 +196,27 @@ fun MainPlatformScreen(
             )
         },
         bottomBar = {
-            NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surfaceContainer
-            ) {
-                NavigationDestination.values().forEach { destination ->
-                    NavigationBarItem(
-                        selected = currentDestination == destination,
-                        onClick = { currentDestination = destination },
-                        icon = {
-                            Icon(
-                                imageVector = destination.icon,
-                                contentDescription = destination.title
-                            )
-                        },
-                        label = {
-                            Text(destination.title)
-                        }
-                    )
+            // Hidden while an overlay is open: an overlay is a page of its own, not a tab of the
+            // platform shell, so the page bar does not apply to it.
+            if (activeOverlay == null) {
+                NavigationBar(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer
+                ) {
+                    NavigationDestination.values().forEach { destination ->
+                        NavigationBarItem(
+                            selected = currentDestination == destination,
+                            onClick = { currentDestination = destination },
+                            icon = {
+                                Icon(
+                                    imageVector = destination.icon,
+                                    contentDescription = destination.title
+                                )
+                            },
+                            label = {
+                                Text(destination.title)
+                            }
+                        )
+                    }
                 }
             }
         }

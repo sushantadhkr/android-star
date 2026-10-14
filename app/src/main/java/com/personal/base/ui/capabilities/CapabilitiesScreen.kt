@@ -106,21 +106,10 @@ fun CapabilitiesScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedButton(onClick = onBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Back")
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            Text(
-                text = "Platform Capabilities",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold
-            )
-        }
+        // Back navigation is provided by the shell's app bar, so this page does not repeat it.
         Text(
-            text = "Hardware providers, system interfaces, and interactive capability test bench.",
+            text = "Every capability the platform offers. Unavailable ones stay listed and greyed " +
+                    "out rather than hidden, so the full surface is always discoverable.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
