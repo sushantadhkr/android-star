@@ -3,7 +3,6 @@ package com.personal.base.di
 import android.content.Context
 import com.personal.base.core.app.AppManager
 import com.personal.base.core.app.AppToggleStore
-import com.personal.base.core.app.CapabilityServingApp
 import com.personal.base.core.app.DashboardComposer
 import com.personal.base.core.app.DashboardLayoutStore
 import com.personal.base.generated.GeneratedAppRegistry
@@ -263,10 +262,10 @@ class PlatformContainer(val context: Context) {
         // Start Monitors & Services
         networkMonitor.startMonitoring()
         automationEngine.start()
-        embeddedServer.start()
         serviceWatchdog.start()
 
-        // Expose the pinned Platform capability surface over the embedded server.
+        // The platform's network surface. Routes are registered eagerly but the socket is only
+        // opened by the always-on host, so nothing is reachable while that host is stopped.
         CapabilityApi.register(embeddedServer, capabilityCatalogue)
 
         // Register every declared App. The registry is generated at build time from
@@ -279,15 +278,13 @@ class PlatformContainer(val context: Context) {
             appManager.apps.value.map { it.id to it.name }
         )
 
-        // An App may expose a capability over the network. The route is bound to the App's live
-        // instance, so a stopped App serves nothing.
-        appManager.apps.value.forEach { entry ->
-            val serving = entry.instance as? CapabilityServingApp ?: return@forEach
-            embeddedServer.registerRoute("/api/apps/${entry.id}") { _ ->
-                runCatching { serving.httpPayload() }.getOrElse { """{"error":"unavailable"}""" }
+        // Apps that implement AppServer publish their own routes. The App manager handles that
+        // whenever an App starts, so nothing needs wiring here.
+        appManager.apps.value
+            .filter { it.instance is com.personal.base.core.app.AppServer }
+            .forEach { entry ->
+                logger.i("PlatformContainer", "App '${entry.name}' is ready to serve")
             }
-            logger.i("PlatformContainer", "App '${entry.name}' serving /api/apps/${entry.id}")
-        }
 
         logger.i("PlatformContainer", "Registered ${appManager.apps.value.size} app(s).")
 

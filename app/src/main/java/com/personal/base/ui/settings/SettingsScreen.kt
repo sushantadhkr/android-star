@@ -182,12 +182,16 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         Column {
                             Text(
-                                text = "Persistent Foreground Service",
+                                text = "Always-on Platform Host",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = if (bgStatus.isForegroundServiceRunning) "Running in background (dataSync)" else "Stopped",
+                                text = if (bgStatus.isForegroundServiceRunning) {
+                                    "Running · serving port ${container.embeddedServer.port}"
+                                } else {
+                                    "Stopped · phone unreachable"
+                                },
                                 style = MaterialTheme.typography.labelSmall,
                                 color = if (bgStatus.isForegroundServiceRunning) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                             )
@@ -205,11 +209,12 @@ fun SettingsScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "A foreground service is an Android component that keeps running " +
-                            "when you leave the app, holding a permanent notification so the system " +
-                            "does not kill it. This one wakes the platform every 30 seconds to run " +
-                            "periodic App sync. Turn it off and background work only happens when " +
-                            "you open the app.",
+                    text = "Keeps the platform running after you leave the app, holding a " +
+                            "permanent notification so Android does not kill it. While it runs, " +
+                            "your apps stay reachable over the network on port " +
+                            "${container.embeddedServer.port} and background work keeps happening " +
+                            "with the screen off. Turn it off and your phone becomes unreachable " +
+                            "from the network entirely.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

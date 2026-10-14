@@ -3,6 +3,7 @@ package com.personal.base.core.app
 import com.personal.base.core.command.CommandResult
 import com.personal.base.core.command.RemoteCommand
 import com.personal.base.core.logging.PlatformLogger
+import com.personal.base.core.platform.EmbeddedServer
 import com.personal.base.core.plugin.PlatformContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -47,6 +48,51 @@ class AppManager(
 
     private val _activeAppId = MutableStateFlow<String?>(null)
     val activeAppId: StateFlow<String?> = _activeAppId.asStateFlow()
+
+    /** Live registrars for Apps that currently serve, so their routes can be removed on teardown. */
+    private val registrars = ConcurrentHashMap<String, AppRouteRegistrar>()
+
+    /**
+     * The platform server Apps publish onto, when it is running.
+     *
+     * Set by the always-on host. Null while the host is stopped, in which case Apps still run and
+     * contribute their UI, but nothing is exposed on the network.
+     */
+    var server: EmbeddedServer? = null
+
+    /**
+     * Installs an App's routes, if the App serves and the platform server is up.
+     *
+     * Called after the instance is created. Idempotent, so a repeated start does not double-register.
+     */
+    private fun installRoutes(appId: String) {
+        val instance = instances[appId] as? AppServer ?: return
+        val activeServer = server ?: return
+        if (registrars.containsKey(appId)) return
+
+        val registrar = AppRouteRegistrar(
+            appId = appId,
+            server = activeServer,
+            isEnabled = { instances.containsKey(appId) },
+            onUnregister = { path -> logger.i("AppManager", "App '$appId' removed route $path") }
+        )
+        runCatching { instance.install(registrar) }
+            .onFailure { logger.e("AppManager", "App '$appId' failed to install routes: ${it.message}") }
+        registrars[appId] = registrar
+        logger.i("AppManager", "App '$appId' serving under ${registrar.resolve("")}")
+    }
+
+    /** Removes an App's routes. Called when the App is switched off. */
+    private fun uninstallRoutes(appId: String, instance: PlatformApp? = instances[appId]) {
+        registrars.remove(appId)?.let { registrar ->
+            runCatching { registrar.uninstall() }
+                .onFailure { logger.w("AppManager", "Error removing routes for '$appId': ${it.message}") }
+        }
+        (instance as? AppServer)?.let { serving ->
+            runCatching { serving.uninstall() }
+                .onFailure { logger.w("AppManager", "Error in uninstall for '$appId': ${it.message}") }
+        }
+    }
 
     /**
      * Registers an App's declaration. This does *not* create an instance.
@@ -165,6 +211,9 @@ class AppManager(
             app.onInitialize(platformContext)
             instances[registration.id] = app
 
+            // An App that serves gets its endpoints published as soon as it starts.
+            installRoutes(registration.id)
+
             // Remember what it contributes so the arrangement survives teardown.
             val contribution = app.contribution
             declarations[registration.id] = DeclaredContribution(
@@ -181,7 +230,11 @@ class AppManager(
     }
 
     private fun destroyInstance(appId: String) {
-        val app = instances.remove(appId) ?: return
+        val app = instances[appId] ?: return
+        // Remove routes and let the App release serving resources *before* the instance goes away,
+        // so nothing is left answering for a destroyed App.
+        uninstallRoutes(appId, app)
+        instances.remove(appId)
         try {
             app.onDestroy()
         } catch (e: Exception) {

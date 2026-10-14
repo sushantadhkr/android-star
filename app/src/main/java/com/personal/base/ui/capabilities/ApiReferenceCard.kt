@@ -103,9 +103,23 @@ fun ApiReferenceCard() {
                     fontFamily = FontFamily.Monospace
                 )
                 Text(
-                    text = "GET  /api/apps/<id>           per-App payload, while that App runs",
+                    text = "GET  /api/apps/<id>/<path>   whatever Apps that serve publish",
                     style = MaterialTheme.typography.bodySmall,
                     fontFamily = FontFamily.Monospace
+                )
+
+                Text(
+                    text = "Always-on host",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "The server only listens while the always-on host is running " +
+                            "(Settings → Always-on Platform Host). Stop it and the phone becomes " +
+                            "unreachable. A stopped App answers 503 on its own endpoints, so a " +
+                            "toggle always takes effect immediately.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 Text(

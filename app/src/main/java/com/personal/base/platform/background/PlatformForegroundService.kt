@@ -21,8 +21,17 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * Foreground Service for active data sync or justified persistent tasks.
- * Follows Android 14+ / 16 foreground service restrictions (dataSync type).
+ * The always-on platform host.
+ *
+ * This is not "background work" in the abstract — it is the process that keeps the platform alive
+ * after you leave the app, and it is what makes the phone reachable from the network.
+ *
+ * While running it:
+ *   - hosts the platform's HTTP server, so Apps that implement `AppServer` answer requests;
+ *   - runs periodic App sync so background work still happens with the screen off.
+ *
+ * Android requires a foreground service to show a permanent notification, which is why the user
+ * always sees it. Turning it off in Settings stops the server and background work together.
  */
 class PlatformForegroundService : Service() {
 
@@ -61,7 +70,8 @@ class PlatformForegroundService : Service() {
 
         when (intent?.action) {
             ACTION_STOP -> {
-                logger?.i("ForegroundService", "Stopping service on explicit user action")
+                logger?.i("ForegroundService", "Stopping host on explicit user action")
+                stopHost()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return START_NOT_STICKY
@@ -84,14 +94,24 @@ class PlatformForegroundService : Service() {
                     return START_NOT_STICKY
                 }
 
-                // Periodic health sync loop while service is active
+                // Publish the platform server for as long as this host is alive. Apps that
+                // implement AppServer install their routes onto it, and the App manager is told
+                // where they live so a newly-started App can publish immediately.
+                val container = app?.container
+                container?.embeddedServer?.let { server ->
+                    server.start()
+                    container.appManager.server = server
+                    logger?.i("ForegroundService", "Hosting platform server on port ${server.port}")
+                }
+
+                // Periodic sync: App hooks, and plugin sync for anything still using the older path.
                 scope.launch {
                     var counter = 0
                     while (isActive) {
                         delay(30_000L) // 30 second cycle
                         counter++
-                        logger?.d("ForegroundService", "Active foreground heartbeat tick #$counter")
-                        app?.container?.pluginManager?.runPeriodicSync()
+                        logger?.d("ForegroundService", "Active host heartbeat tick #$counter")
+                        container?.appManager?.runPeriodicSync()
                     }
                 }
             }
@@ -120,17 +140,34 @@ class PlatformForegroundService : Service() {
         )
 
         return NotificationCompat.Builder(this, NotificationCapabilityProvider.CHANNEL_SYNC)
-            .setContentTitle("Personal Base Platform Active")
-            .setContentText("Platform core services running in background")
+            .setContentTitle("Android Star is running")
+            .setContentText("Serving your apps in the background · port ${hostPort()}")
             .setSmallIcon(android.R.drawable.ic_popup_sync)
             .setContentIntent(mainPendingIntent)
             .setOngoing(true)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop Service", stopPendingIntent)
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                "Stop",
+                stopPendingIntent
+            )
             .build()
+    }
+
+    private fun hostPort(): Int =
+        (application as? PersonalBaseApplication)
+            ?.container?.embeddedServer?.port
+            ?: com.personal.base.core.platform.EmbeddedServer.DEFAULT_PORT
+
+    /** Tears the host down: the server stops and Apps can no longer be reached. */
+    private fun stopHost() {
+        val container = (application as? PersonalBaseApplication)?.container ?: return
+        container.appManager.server = null
+        container.embeddedServer.stop()
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        stopHost()
         serviceJob.cancel()
     }
 }

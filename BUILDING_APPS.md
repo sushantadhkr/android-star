@@ -169,22 +169,48 @@ makes the per-App mute control in Settings work.
 - Never touch a platform channel id.
 - The user silencing your App never affects the platform or any other App.
 
-## 10. Serving a capability over the network
+## 10. Serving over the network
 
-Expose a capability as a service by implementing `CapabilityServingApp`:
+The platform owns one server and one port. An App contributes routes to it by implementing
+`AppServer`:
 
 ```kotlin
-class WebcamApp : PlatformApp, CapabilityServingApp {
-    override fun httpPayload(): String = """{"streaming":true}"""
-    override val servePath: String get() = "camera"
+@PlatformAppDefinition(id = "webcam", name = "Webcam", order = 10)
+class WebcamApp : PlatformApp, AppServer {
+
+    override val id = "webcam"
+    override val name = "Webcam"
+    override val icon = Icons.Default.Videocam
+    override val description = "Serves the camera."
+    override val version = "1.0"
+
+    override fun install(registrar: AppRouteRegistrar) {
+        registrar.get("status") { ServerResponse.json("""{"streaming":$streaming}""") }
+        registrar.get("clients") { ServerResponse.json("""{"clients":${clients.size}}""") }
+    }
+
+    override fun uninstall() {
+        // release the camera here
+    }
 }
 ```
 
-- The route is bound to the **live instance** — a stopped App serves nothing. That is correct; do
-  not work around it by holding a static reference.
-- Return JSON. Do not stream secrets.
-- The embedded server currently runs **without authentication**. Do not expose anything private,
-  and do not treat it as safe on an untrusted network.
+Your endpoints are namespaced automatically:
+
+```
+/api/apps/webcam/status
+/api/apps/webcam/clients
+```
+
+Rules:
+
+- **Never open your own socket.** The platform runs the server; you contribute routes.
+- **The toggle gates every request.** A stopped App answers `503`, immediately, without the route
+  being removed. That is the user's safety switch, expressed over HTTP.
+- `install` runs when the App is switched on, `uninstall` when it is switched off. Release hardware
+  in `uninstall`.
+- Nothing is reachable while the **always-on host** (Settings → Always-on Platform Host) is off.
+- The server has **no authentication**. Do not expose anything private on it.
 
 ## 11. Never modify the platform
 
@@ -234,7 +260,7 @@ To add a whole new *module* of Apps, add it to `settings.gradle.kts` and one lin
 | Add a full screen | Override `AppContent` |
 | Use a device capability | `context.getCapabilityByClass(...)` |
 | Add a non-tab page | Add to `OverlayDestination` |
-| Serve a capability | Implement `CapabilityServingApp` |
+| Serve a capability | Implement `AppServer`, register routes |
 | Match the platform look | `PlatformCard`, `PlatformHint`, `MaterialTheme` tokens |
 | Add spacing | `PlatformSpacing.small / medium / large` |
 | Show a labelled switch | `PlatformSwitchRow { checked = it }` |

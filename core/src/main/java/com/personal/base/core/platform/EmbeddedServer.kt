@@ -17,24 +17,80 @@ import java.net.Socket
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Lightweight native embedded HTTP and WebSocket server running inside the Android base app.
+ * What a route handler receives.
+ */
+data class ServerRequest(
+    val method: String,
+    val path: String,
+    val body: String
+)
+
+/**
+ * What a route handler returns.
+ *
+ * A status code is part of the response because a stopped App must be able to answer
+ * "not running" rather than silently serving stale data.
+ */
+data class ServerResponse(
+    val status: Int = 200,
+    val contentType: String = "application/json",
+    val body: String
+) {
+    companion object {
+        fun json(body: String) = ServerResponse(200, "application/json", body)
+        fun text(body: String) = ServerResponse(200, "text/plain", body)
+
+        /** Used when the owning App is switched off. */
+        fun unavailable(reason: String) =
+            ServerResponse(503, "application/json", """{"error":"$reason"}""")
+    }
+}
+
+private typealias RouteHandler = (ServerRequest) -> ServerResponse
+
+/**
+ * A lightweight HTTP server owned by the platform.
+ *
+ * The platform runs one instance and Apps register routes onto it, so there is a single server and a
+ * single port no matter how many Apps are installed. Routes may be removed again, which is how a
+ * stopped App stops answering.
  */
 class EmbeddedServer(
     private val logger: PlatformLogger,
     val port: Int = DEFAULT_PORT
 ) {
+
     private val scope = CoroutineScope(Dispatchers.IO + Job())
     private var serverSocket: ServerSocket? = null
-    private var serverJob: Job? = null
+    private var serverJob: kotlinx.coroutines.Job? = null
 
     private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
 
-    private val routeHandlers = ConcurrentHashMap<String, (body: String) -> String>()
+    private val routeHandlers = ConcurrentHashMap<String, RouteHandler>()
 
-    fun registerRoute(path: String, handler: (body: String) -> String) {
+    /** Registers a route. Re-registering a path replaces the previous handler. */
+    fun registerRoute(path: String, handler: RouteHandler) {
         routeHandlers[path] = handler
     }
+
+    /** Removes a route. Used when an App stops serving. */
+    fun unregisterRoute(path: String) {
+        routeHandlers.remove(path)
+    }
+
+    fun hasRoute(path: String): Boolean = routeHandlers.containsKey(path)
+
+    /**
+     * The handler registered for a path, or null.
+     *
+     * Exposed so a route can be exercised without opening a socket, which keeps the server's gating
+     * and status behaviour testable.
+     */
+    fun handlerFor(path: String): ((ServerRequest) -> ServerResponse)? = routeHandlers[path]
+
+    /** Every registered path, sorted — used to publish the current API surface. */
+    fun routes(): List<String> = routeHandlers.keys.sorted()
 
     fun start() {
         if (_isRunning.value) return
@@ -42,15 +98,15 @@ class EmbeddedServer(
             try {
                 serverSocket = ServerSocket(port)
                 _isRunning.value = true
-                logger.i("EmbeddedServer", "Server listening on port $port")
+                logger.i("EmbeddedServer", "Server listening on port $port (${routeHandlers.size} routes)")
 
                 while (isActive) {
-                    val clientSocket = serverSocket?.accept() ?: break
-                    scope.launch { handleClient(clientSocket) }
+                    val client = serverSocket?.accept() ?: break
+                    scope.launch { handleClient(client) }
                 }
             } catch (e: Exception) {
                 if (isActive) {
-                    logger.e("EmbeddedServer", "Server socket error: ${e.message}", e.message)
+                    logger.e("EmbeddedServer", "Server socket error: ${e.message}", e.stackTraceToString())
                 }
             } finally {
                 _isRunning.value = false
@@ -61,13 +117,14 @@ class EmbeddedServer(
     private fun handleClient(socket: Socket) {
         try {
             socket.use { s ->
-                val reader = BufferedReader(InputStreamReader(s.getInputStream()))
-                val writer = PrintWriter(s.getOutputStream())
+                val reader = BufferedReader(InputStreamReader(s.inputStream))
+                val writer = PrintWriter(s.outputStream)
 
                 val requestLine = reader.readLine() ?: return
                 val parts = requestLine.split(" ")
-                val method = if (parts.isNotEmpty()) parts[0] else "GET"
-                val path = if (parts.size > 1) parts[1] else "/"
+                val method = parts.getOrNull(0) ?: "GET"
+                val rawPath = parts.getOrNull(1) ?: "/"
+                val path = rawPath.substringBefore('?')
 
                 var contentLength = 0
                 var line = reader.readLine()
@@ -79,32 +136,43 @@ class EmbeddedServer(
                 }
 
                 val body = if (contentLength > 0) {
-                    val buf = CharArray(contentLength)
-                    reader.read(buf, 0, contentLength)
-                    String(buf)
+                    CharArray(contentLength).also { reader.read(it, 0, contentLength) }.concatToString()
                 } else ""
 
-                val handler = routeHandlers[path]
-                val responseBody = handler?.invoke(body) ?: """{"status":"ok","app":"Android Star","path":"$path"}"""
+                val response = routeHandlers[path]?.invoke(ServerRequest(method, path, body))
+                    ?: ServerResponse(404, "application/json", """{"error":"Not Found"}""")
 
-                writer.print("HTTP/1.1 200 OK\r\n")
-                writer.print("Content-Type: application/json\r\n")
-                writer.print("Content-Length: ${responseBody.toByteArray().size}\r\n")
+                val bytes = response.body.toByteArray()
+                writer.print("HTTP/1.1 ${response.status} ${statusText(response.status)}\r\n")
+                writer.print("Content-Type: ${response.contentType}\r\n")
+                writer.print("Content-Length: ${bytes.size}\r\n")
                 writer.print("Access-Control-Allow-Origin: *\r\n")
                 writer.print("Connection: close\r\n\r\n")
-                writer.print(responseBody)
+                writer.print(response.body)
                 writer.flush()
             }
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun statusText(status: Int) = when (status) {
+        200 -> "OK"
+        400 -> "Bad Request"
+        404 -> "Not Found"
+        500 -> "Internal Server Error"
+        503 -> "Service Unavailable"
+        else -> "OK"
     }
 
     fun stop() {
         try {
             serverSocket?.close()
             serverJob?.cancel()
+            serverSocket = null
             _isRunning.value = false
             logger.i("EmbeddedServer", "Server stopped.")
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+        }
     }
 
     companion object {

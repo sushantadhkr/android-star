@@ -1,6 +1,7 @@
 package com.personal.base.core.capability
 
 import com.personal.base.core.platform.EmbeddedServer
+import com.personal.base.core.platform.ServerResponse
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -26,11 +27,11 @@ object CapabilityApi {
         catalogue.refresh()
 
         server.registerRoute("/api/capabilities") { _ ->
-            json.encodeToString(catalogueSnapshot(catalogue))
+            ServerResponse.json(json.encodeToString(catalogueSnapshot(catalogue)))
         }
 
         server.registerRoute("/api/capabilities/status") { _ ->
-            json.encodeToString(catalogueSnapshot(catalogue))
+            ServerResponse.json(json.encodeToString(catalogueSnapshot(catalogue)))
         }
     }
 
