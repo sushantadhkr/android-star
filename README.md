@@ -348,6 +348,46 @@ curl -H "$H" -X POST http://PHONE:8899/api/capabilities/toggle \
 | `POST /api/capabilities/toggle` | Switch one capability, or all of them |
 | `GET /api/apps/<id>/<path>` | Endpoints published by Apps that serve |
 
+### Home-screen widgets
+
+An App can put a tile on the home screen by declaring one line:
+
+```kotlin
+@PlatformAppDefinition(id = "system-status", name = "System Status")
+class SystemStatusApp : PlatformApp {
+    override val contribution = AppContribution(
+        widget = WidgetSpec(
+            id = "system-status",
+            title = "System",
+            subtitle = "Battery, storage, connection",
+            status = "82% · 41 GB free · online",
+            icon = WidgetSpec.ICON_SYNC,
+            progress = null
+        )
+    )
+}
+```
+
+That is the whole thing. No `AppWidgetProvider`, no RemoteViews, no layout XML, and **no manifest
+entry in the shell** — one provider is declared once and renders whatever Apps publish. That matters
+because it keeps adding an App a single-file job, which is the rule the rest of the platform rests
+on.
+
+**Why data and not a view:** a home-screen widget can only render `RemoteViews`, a short list of
+plain views. A Compose card cannot be reused there, so a widget declared as a view would have to be
+written twice. Declared as data, the App picks its text and icon and the platform draws it.
+
+The App toggle governs it: switching an App off withdraws its tile rather than leaving something on
+a home screen that looks live and is not.
+
+**Capabilities can declare a tile too**, by overriding `widgetSpec()`. `DOWNLOAD_MANAGER` does,
+showing what is downloading. It is read whenever the capability's state changes, so the tile is never
+a snapshot that went stale the moment it was drawn. A capability with nothing worth glancing at
+declares nothing, so an idle platform does not fill your home screen with empty tiles.
+
+Widgets are `home_screen` only, deliberately — not `keyguard`. A tile that renders on the lock screen
+would put whatever it shows in front of anyone holding the phone.
+
 ### The console
 
 `index.html` is a browser front end for everything above. **The phone serves it**, at its own root:

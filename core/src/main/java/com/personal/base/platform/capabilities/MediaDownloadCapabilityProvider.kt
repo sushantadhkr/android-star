@@ -82,6 +82,45 @@ class MediaDownloadCapabilityProvider(
 
     override fun checkStatus(): CapabilityStatus = CapabilityStatus.Available
 
+    /**
+     * A tile showing what the downloader is doing.
+     *
+     * Downloads are exactly the sort of thing a home screen is for: something running, something
+     * worth glancing at, something to stop. It carries the active count and the overall progress
+     * rather than any one file, because a tile showing one job is a tile that is wrong as soon as a
+     * second starts.
+     */
+    override fun widgetSpec(): com.personal.base.core.app.WidgetSpec? {
+        val all = _history.value
+        if (all.isEmpty()) return null
+
+        val active = all.count { it.status == "downloading" || it.status == "queued" }
+        val latest = all.last()
+
+        val status = when {
+            active > 0 -> "$active downloading · ${latest.percent}%"
+            latest.status == "complete" -> "Saved ${latest.fileName}"
+            latest.status == "failed" -> "Failed: ${latest.error ?: "unknown"}"
+            latest.status == "cancelled" -> "Cancelled"
+            else -> latest.status
+        }
+
+        val progress = when {
+            active > 0 -> latest.percent
+            latest.status == "complete" -> 100
+            else -> null
+        }
+
+        return com.personal.base.core.app.WidgetSpec(
+            id = "downloads",
+            title = if (active > 0) "Downloading" else "Downloads",
+            subtitle = "${all.size} file${if (all.size == 1) "" else "s"} today",
+            status = status,
+            icon = com.personal.base.core.app.WidgetSpec.ICON_DOWNLOAD,
+            progress = progress
+        )
+    }
+
     override fun release() {
         jobs.values.forEach { it.cancel() }
         jobs.clear()
@@ -364,7 +403,17 @@ class MediaDownloadCapabilityProvider(
 
     private fun push() {
         _history.value = downloads.values.sortedBy { it.startedAt }.toList()
+        // The tile is derived state, so it is redrawn whenever the state it describes moves.
+        onChanged?.invoke()
     }
+
+    /**
+     * Told whenever this provider's state changes, so whatever is showing it can redraw.
+     *
+     * A capability must not know about widgets to publish one; it only has to say what changed.
+     */
+    @Volatile
+    var onChanged: (() -> Unit)? = null
 
     companion object {
         const val FOLDER = "Android Star"

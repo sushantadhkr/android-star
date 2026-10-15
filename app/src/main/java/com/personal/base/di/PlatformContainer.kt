@@ -444,10 +444,43 @@ class PlatformContainer(val context: Context) {
         capabilityRegistry.register(FileServerCapabilityProvider(context, connectivityProvider, logger))
         capabilityRegistry.register(NearbyChatCapabilityProvider(context, deviceSigner, connectivityProvider, logger))
 
+        // Give any capability that declares a tile one. Read now and on every status refresh, so
+        // a tile showing "downloading 2 files" is true rather than true when it was first drawn.
+        publishCapabilityWidgets()
+        // Capabilities with live state tell the shell when it changes, so a tile is never drawn
+        // once and left stale.
+        capabilityRegistry.allProviders().forEach { provider ->
+            val notifier = provider as? com.personal.base.platform.capabilities.MediaDownloadCapabilityProvider
+            notifier?.onChanged = { publishCapabilityWidgets() }
+        }
+
         // Initialize background tasks
         backgroundManager.initialize()
 
         logger.i("PlatformContainer", "Android Star Base Platform initialized with ${capabilityRegistry.getAllStatuses().size} capabilities.")
+    }
+
+    /**
+     * Publishes a home-screen tile for every capability that declares one.
+     *
+     * A capability with nothing a home screen should show declares nothing, so this walks all of
+     * them and most simply contribute nothing.
+     */
+    private fun publishCapabilityWidgets() {
+        capabilityRegistry.allProviders().forEach { provider ->
+            val spec = runCatching { provider.widgetSpec() }.getOrNull()
+            if (spec == null) {
+                widgetRegistry.withdraw(CAPABILITY_WIDGET_PREFIX + provider.type.name)
+                return@forEach
+            }
+            widgetRegistry.publish(
+                appId = CAPABILITY_WIDGET_PREFIX + provider.type.name,
+                spec = spec,
+                // A capability the user has switched off must not keep a tile, for the same reason
+                // an App's widget follows its toggle.
+                isEnabled = capabilityGate.isEnabled(provider.type)
+            )
+        }
     }
 
     fun release() {
@@ -491,5 +524,8 @@ class PlatformContainer(val context: Context) {
          * by accident. Every endpoint the console drives still requires the token.
          */
         val CONSOLE_PATHS = setOf("/", "/index.html")
+
+        /** Keeps a capability's tile from ever colliding with an App's. */
+        const val CAPABILITY_WIDGET_PREFIX = "capability:"
     }
 }

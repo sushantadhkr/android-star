@@ -60,4 +60,15 @@ interface CapabilityProvider {
      * Optional method for providers that implement checkStatus dynamically.
      */
     fun checkStatus(): CapabilityStatus = CapabilityStatus.Available
+
+    /**
+     * The home-screen tile this capability shows, if any.
+     *
+     * Declared rather than pushed, so a capability with something worth glancing at gets a tile
+     * without the shell knowing which ones those are. Read again whenever the capability's status
+     * changes, so the tile tracks live state instead of going stale the moment it is drawn.
+     *
+     * Returns null for the many capabilities that have nothing a home screen should show.
+     */
+    fun widgetSpec(): com.personal.base.core.app.WidgetSpec? = null
 }

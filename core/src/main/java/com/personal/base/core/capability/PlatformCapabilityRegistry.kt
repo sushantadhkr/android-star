@@ -36,6 +36,14 @@ class PlatformCapabilityRegistry {
      * Retrieves the provider instance for a specific capability type.
      */
     @Suppress("UNCHECKED_CAST")
+    /**
+     * Every registered provider.
+     *
+     * Exposed so the shell can ask each one what it wants shown, rather than keeping a list of
+     * which capabilities deserve a tile — that list would be one more thing to forget to update.
+     */
+    fun allProviders(): Collection<CapabilityProvider> = providers.values
+
     fun <T : CapabilityProvider> getProvider(type: CapabilityType): T? {
         return providers[type] as? T
     }

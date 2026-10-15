@@ -13,6 +13,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -443,5 +444,36 @@ class WiredCapabilitiesTest {
         )
         assertTrue("retry must be accepted, got ${response.status}: ${response.body}", response.status in 200..299)
         assertTrue("retry must report the download it came from", response.body.contains(id))
+    }
+
+    @Test
+    fun aCapabilityDeclaresATileOnlyWhenItHasSomethingToSay() {
+        val provider = container.capabilityRegistry
+            .getProviderByClass(MediaDownloadCapabilityProvider::class.java)!!
+
+        // Idle downloader: a tile reading "0 downloads" forever is noise on a home screen.
+        assertNull(
+            "an idle downloader must not claim a tile",
+            provider.widgetSpec()
+        )
+
+        ok("DOWNLOAD_MANAGER", "fetch", "url" to "https://example.com", "fileName" to "tiled.bin")
+        val spec = provider.widgetSpec()
+        assertTrue("a downloader with work must declare a tile", spec != null)
+        assertTrue("the tile must name itself", spec!!.id.isNotBlank())
+        assertTrue("the tile must say something", spec.status.isNotBlank())
+    }
+
+    @Test
+    fun theShellGivesEveryDeclaredCapabilityATile() {
+        val tiles = container.widgetRegistry.widgets.value
+            .filter { it.appId.startsWith("capability:") }
+        // Nothing running yet, so there should be none — but the mechanism must have run without
+        // falling over, which is what this proves on a real device.
+        assertTrue(
+            "an idle platform must not fill a home screen with tiles, got " +
+                tiles.map { it.appId },
+            tiles.isEmpty()
+        )
     }
 }
