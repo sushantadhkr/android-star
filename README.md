@@ -353,20 +353,23 @@ curl -H "$H" -X POST http://PHONE:8899/api/capabilities/toggle \
 An App can put a tile on the home screen by declaring one line:
 
 ```kotlin
-@PlatformAppDefinition(id = "system-status", name = "System Status")
-class SystemStatusApp : PlatformApp {
+@PlatformAppDefinition(id = "weather", name = "Weather")
+class WeatherApp : PlatformApp {
     override val contribution = AppContribution(
         widget = WidgetSpec(
-            id = "system-status",
-            title = "System",
-            subtitle = "Battery, storage, connection",
-            status = "82% · 41 GB free · online",
+            id = "weather",
+            title = "London",
+            subtitle = "Overcast, 14°",
+            status = "Updated 10 minutes ago",
             icon = WidgetSpec.ICON_SYNC,
             progress = null
         )
     )
 }
 ```
+
+The `status` line is meant to be live — call `publishWidget(...)` when it changes and the tile
+redraws rather than showing a snapshot that went stale the moment it was drawn.
 
 That is the whole thing. No `AppWidgetProvider`, no RemoteViews, no layout XML, and **no manifest
 entry in the shell** — one provider is declared once and renders whatever Apps publish. That matters
