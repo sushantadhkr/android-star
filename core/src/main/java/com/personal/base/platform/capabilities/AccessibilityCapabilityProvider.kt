@@ -2,6 +2,7 @@ package com.personal.base.platform.capabilities
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Context
 import android.graphics.Path
 import android.os.Build
@@ -18,6 +19,23 @@ import kotlinx.coroutines.flow.asStateFlow
 class PlatformAccessibilityService : AccessibilityService() {
     companion object {
         var activeInstance: PlatformAccessibilityService? = null
+
+        /**
+         * Whether the user has switched this service on, without needing the service to be running.
+         *
+         * `activeInstance` only answers while the app process is alive and bound, so it cannot be
+         * what onboarding reads — a user could have enabled this and the answer would still be
+         * "no". Android's own list of enabled services is the authority, so the UI and the API
+         * ask the same question and cannot disagree.
+         */
+        fun isEnabledFor(context: Context): Boolean {
+            val manager = context.getSystemService(Context.ACCESSIBILITY_SERVICE)
+                as? AccessibilityManager ?: return false
+            return runCatching {
+                manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+                    .any { it.resolveInfo?.serviceInfo?.packageName == context.packageName }
+            }.getOrDefault(false)
+        }
     }
 
     override fun onServiceConnected() {
@@ -112,9 +130,15 @@ class AccessibilityCapabilityProvider(
     val isServiceEnabled: Boolean
         get() = PlatformAccessibilityService.activeInstance != null
 
-    /** Whether the user has enabled this app in Settings, as opposed to whether a tap just worked. */
+    /**
+     * Whether the user has enabled this app in Settings.
+     *
+     * Asks Android's enabled-service list rather than the live connection, so a service the user
+     * has granted but that has not bound yet still reads as enabled. The alternative would make
+     * the API say "not enabled" while the user looks at Settings showing it on.
+     */
     val isEnabledInSettings: Boolean
-        get() = isServiceEnabled
+        get() = PlatformAccessibilityService.isEnabledFor(context)
 
     /** The Settings screen that grants it, for callers that need to send the user there. */
     val grantAction: String

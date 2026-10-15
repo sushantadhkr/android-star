@@ -58,6 +58,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.personal.base.platform.capabilities.PlatformAccessibilityService
 import com.personal.base.platform.permissions.RestrictedPermissions
 
 data class PermissionCategory(
@@ -253,6 +259,29 @@ fun OnboardingScreen(
         refreshTrigger++
     }
 
+    // The grant the user makes in Settings happens in another app, so this screen gets no
+    // callback for it. Re-reading on every resume is the only way the answer can be current —
+    // otherwise the button would still read "Enable Screen Control" to someone who just enabled
+    // it, which is the kind of stale UI that makes people tap twice.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) refreshTrigger++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // Read live rather than remembered, so returning from the settings screen re-reads it.
+    val accessibilityGranted = remember(refreshTrigger) {
+        PlatformAccessibilityService.isEnabledFor(context)
+    }
+
+    val notificationAccessGranted = remember(refreshTrigger) {
+        NotificationManagerCompat.getEnabledListenerPackages(context)
+            .contains(context.packageName)
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         bottomBar = {
@@ -307,6 +336,66 @@ fun OnboardingScreen(
                             text = "Android only grants these from system settings " +
                                     "(${RestrictedPermissions.settingsLabel()}). " +
                                     "Turn them on there to unlock the SMS and Call Logs capabilities.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Screen control. Android will not grant an accessibility service from a
+                    // dialog — only a human in Settings can — so this is a button and an
+                    // explanation, exactly like SMS above. It is not a runtime permission and is
+                    // deliberately not in the "grant all" list, because requesting it there would
+                    // show a dialog that can never succeed.
+                    OutlinedButton(
+                        onClick = {
+                            context.startActivity(
+                                Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(
+                            if (accessibilityGranted) Icons.Default.CheckCircle else Icons.Default.LockOpen,
+                            contentDescription = null
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            if (accessibilityGranted) {
+                                "Screen Control Enabled"
+                            } else {
+                                "Enable Screen Control"
+                            },
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Text(
+                        text = if (accessibilityGranted) {
+                            "Apps can tap and swipe the screen. Android Star cannot read what is " +
+                                    "on screen, and this can be switched off at any time in Settings."
+                        } else {
+                            "Lets Apps tap and swipe your screen. Android only grants this from " +
+                                    "Settings, so no dialog can ask for it. Turn on \"Android Star\" " +
+                                    "under Installed Services to unlock the Accessibility and Remote " +
+                                    "Input capabilities."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    if (notificationAccessGranted) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "Notification reading is on.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,

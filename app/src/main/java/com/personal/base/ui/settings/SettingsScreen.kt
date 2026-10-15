@@ -16,6 +16,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.filled.Extension
@@ -38,6 +41,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -54,6 +58,7 @@ import com.personal.base.core.app.AppScopeImpl
 import com.personal.base.core.security.LockTimeout
 import com.personal.base.core.runtime.NotificationGroup
 import com.personal.base.di.PlatformContainer
+import com.personal.base.platform.capabilities.PlatformAccessibilityService
 import kotlinx.coroutines.launch
 
 @Composable
@@ -64,6 +69,8 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    /** Bumped on every resume, so grants made in Settings elsewhere show up here on return. */
+    var refreshCounter by remember { mutableStateOf(0) }
     val currentConfig by container.configRepository.config.collectAsState()
     val bgStatus by container.backgroundManager.status.collectAsState()
     val channels by container.notificationChannelManager.channelsFlow.collectAsState()
@@ -263,7 +270,71 @@ fun SettingsScreen(
             }
         }
 
-        // Downloads: where files the platform fetches are written.
+        // Screen control. Onboarding asks for this once, but onboarding is a one-time screen and
+        // a user who skips past it needs a way back — otherwise the capability looks broken with
+        // no route to fix it.
+        val accessibilityGranted = remember(refreshCounter) {
+            PlatformAccessibilityService.isEnabledFor(context)
+        }
+
+        OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Screen control",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = if (accessibilityGranted) {
+                                "On. Apps can tap and swipe your screen."
+                            } else {
+                                "Off. Taps, swipes and the Remote Input capability do nothing until this is on."
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (accessibilityGranted) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.error
+                            }
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    OutlinedButton(onClick = {
+                        context.startActivity(
+                            Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }) { Text(if (accessibilityGranted) "Manage" else "Enable") }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Android only grants this from system settings. It lets Android Star tap " +
+                            "and swipe; it cannot read what is on screen.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        // Grants are made in another app, so this screen gets no callback for them. Re-reading on
+    // resume is what keeps this card honest the moment the user comes back.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) refreshCounter++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // Downloads: where files the platform fetches are written.
         var downloadFolder by remember { mutableStateOf(container.downloadLocation.folderName) }
 
         val pickFolder = rememberLauncherForActivityResult(
