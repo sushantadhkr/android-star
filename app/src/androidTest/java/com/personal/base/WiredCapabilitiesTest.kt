@@ -1,5 +1,6 @@
 package com.personal.base
 
+import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.personal.base.core.capability.CapabilityActions
@@ -557,5 +558,95 @@ class WiredCapabilitiesTest {
             ))
         )
         assertTrue("with no image the request must be refused, got ${response.body}", response.status == 400)
+    }
+
+    @Test
+    fun keyguardAndTheAllowlistedShellAnswer() {
+        ok("KEYGUARD", "status")
+        ok("RESTRICTED_SHELL", "execute", "command" to "uname -a")
+    }
+
+    @Test
+    fun theShellRefusesAnythingNotOnTheAllowlist() {
+        val response = actions.invoke(
+            CapabilityType.RESTRICTED_SHELL,
+            "execute",
+            JsonObject(mapOf(
+                "capability" to JsonPrimitive("RESTRICTED_SHELL"),
+                "action" to JsonPrimitive("execute"),
+                "command" to JsonPrimitive("rm -rf /sdcard")
+            ))
+        )
+        // Refused before it runs, and said why. A shell that quietly ran this would be the worst
+        // possible outcome, so the refusal is the thing under test.
+        assertTrue(
+            "a non-allowlisted command must be refused, got ${response.status} ${response.body}",
+            response.status == 403
+        )
+        assertTrue(
+            "the refusal must name the allowlist reason",
+            response.body.contains("allowlist")
+        )
+    }
+
+    @Test
+    fun phoneAnswersHardwareEvenWithoutThePermission() {
+        val body = actions.invoke(
+            CapabilityType.PHONE,
+            "status",
+            JsonObject(mapOf(
+                "capability" to JsonPrimitive("PHONE"),
+                "action" to JsonPrimitive("status")
+            ))
+        ).body
+
+        assertTrue("phone status must answer", body.contains("hasTelephony"))
+        assertTrue(
+            "gated fields must be named rather than silently blank",
+            body.contains("withheld") && body.contains("phoneNumberAvailable")
+        )
+    }
+
+    @Test
+    fun backgroundWorkWillNotPretendToScheduleATaskThatDoesNotExist() {
+        val response = actions.invoke(
+            CapabilityType.BACKGROUND_WORK,
+            "enqueue",
+            JsonObject(mapOf(
+                "capability" to JsonPrimitive("BACKGROUND_WORK"),
+                "action" to JsonPrimitive("enqueue"),
+                "task" to JsonPrimitive("definitely.not.registered")
+            ))
+        )
+        assertTrue(
+            "an unregistered task must be refused, not enqueued, got ${response.status}",
+            response.status == 400
+        )
+    }
+
+    @Test
+    fun backgroundWorkReallyRunsWhatItSchedules() {
+        ok("BACKGROUND_WORK", "tasks")
+        ok("BACKGROUND_WORK", "enqueue", "task" to "capabilities.refresh")
+        ok("BACKGROUND_WORK", "list")
+
+        // Wait for the worker to actually run rather than claiming success on enqueue alone.
+        var sawFinished = false
+        for (attempt in 0 until 20) {
+            val list = actions.invoke(
+                CapabilityType.BACKGROUND_WORK,
+                "list",
+                JsonObject(mapOf(
+                    "capability" to JsonPrimitive("BACKGROUND_WORK"),
+                    "action" to JsonPrimitive("list")
+                ))
+            ).body
+            if (list.contains("SUCCEEDED") && list.contains("Refreshed")) {
+                sawFinished = true
+                break
+            }
+            SystemClock.sleep(500)
+        }
+        assertTrue("the scheduled work must have run and reported its result", sawFinished)
     }
 }

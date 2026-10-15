@@ -91,12 +91,14 @@ class ApiDocumentationTest {
         // Advertising an action a provider cannot perform would be a lie. These have no provider at
         // all, or a provider with nothing to call, so they must offer nothing.
         listOf(
-            "BACKGROUND_WORK",     // no provider
-            "PHONE",               // no provider
-            "DOCUMENTS_PROVIDER",  // provider exists but has no callable behaviour
-            "KEYGUARD",
+            // The service class exists for each of these but is not registered by the shell, so
+            // nothing can reach it. Advertising an action would be a 409 forever.
+            "ACCESSIBILITY",
+            "REMOTE_INPUT",
             "NOTIFICATION_LISTENER",
-            "RESTRICTED_SHELL"
+            "DOCUMENTS_PROVIDER",
+            // A provider that only sets a flag and logs "daemon initialized" opens no socket.
+            "SFTP_SERVER"
         ).forEach { id ->
             val type = CapabilityType.entries.first { it.name == id }
             assertTrue(

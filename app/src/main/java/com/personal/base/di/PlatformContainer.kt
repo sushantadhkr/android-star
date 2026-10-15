@@ -111,7 +111,11 @@ import com.personal.base.platform.capabilities.GeofenceActivityCapabilityProvide
 import com.personal.base.platform.capabilities.HealthConnectCapabilityProvider
 import com.personal.base.platform.capabilities.InputMethodCapabilityProvider
 import com.personal.base.platform.capabilities.InstalledAppsCapabilityProvider
+import com.personal.base.platform.capabilities.BackgroundTask
+import com.personal.base.platform.capabilities.BackgroundWorkCapabilityProvider
+import com.personal.base.platform.capabilities.CapabilityWorkWorker
 import com.personal.base.platform.capabilities.KeyguardCapabilityProvider
+import com.personal.base.platform.capabilities.PhoneCapabilityProvider
 import com.personal.base.platform.capabilities.LocationCapabilityProvider
 import com.personal.base.platform.capabilities.MediaDownloadCapabilityProvider
 import com.personal.base.platform.capabilities.MediaLibraryCapabilityProvider
@@ -409,6 +413,8 @@ class PlatformContainer(val context: Context) {
         capabilityRegistry.register(AllFilesAccessCapabilityProvider(context, logger))
         capabilityRegistry.register(InputMethodCapabilityProvider(context, logger))
         capabilityRegistry.register(ClipboardBackgroundCapabilityProvider(context, logger))
+        capabilityRegistry.register(PhoneCapabilityProvider(context, logger))
+        capabilityRegistry.register(BackgroundWorkCapabilityProvider(context, logger))
 
         // Also register low-level legacy hardware providers
         capabilityRegistry.register(SensorsCapabilityProvider(context, logger))
@@ -457,6 +463,19 @@ class PlatformContainer(val context: Context) {
         // Initialize background tasks
         backgroundManager.initialize()
 
+        // A WorkManager worker is built by the framework and cannot be handed a provider, so the
+        // background work table is published for it to look tasks up in. Without this, anything an
+        // App scheduled would run and fail with "table not available" rather than doing the work.
+        CapabilityWorkWorker.taskRegistry =
+            capabilityRegistry.allProviders()
+                .filterIsInstance<BackgroundWorkCapabilityProvider>()
+                .firstOrNull()
+        logger.i(
+            "PlatformContainer",
+            "Background work table ${if (CapabilityWorkWorker.taskRegistry != null) "published" else "UNAVAILABLE"}"
+        )
+        registerBackgroundTasks()
+
         logger.i("PlatformContainer", "Android Star Base Platform initialized with ${capabilityRegistry.getAllStatuses().size} capabilities.")
     }
 
@@ -466,6 +485,45 @@ class PlatformContainer(val context: Context) {
      * A capability with nothing a home screen should show declares nothing, so this walks all of
      * them and most simply contribute nothing.
      */
+    /**
+     * The work this platform will accept over the API.
+     *
+     * Each entry is a named closure rather than a command or a URL, so there is nothing to inject at
+     * call time. They are registered here rather than hard-coded into the action layer because they
+     * are shell concerns — the API layer only knows names.
+     */
+    private fun registerBackgroundTasks() {
+        val work = CapabilityWorkWorker.taskRegistry ?: return
+
+        work.register(
+            BackgroundTask(
+                name = "downloads.verify",
+                description = "Check that finished downloads still exist on disk"
+            ) { _ ->
+                val dir = java.io.File(
+                    android.os.Environment.getExternalStoragePublicDirectory(
+                        android.os.Environment.DIRECTORY_DOWNLOADS
+                    ),
+                    "Android Star"
+                )
+                if (!dir.exists()) return@BackgroundTask "No downloads directory yet"
+                val files = dir.listFiles()?.filter { it.isFile }.orEmpty()
+                val bytes = files.sumOf { it.length() }
+                "Checked ${files.size} file(s), ${bytes / 1024} KiB total"
+            }
+        )
+
+        work.register(
+            BackgroundTask(
+                name = "capabilities.refresh",
+                description = "Re-read the status of every capability"
+            ) { _ ->
+                capabilityRegistry.refreshStatus()
+                "Refreshed ${capabilityRegistry.getAllStatuses().size} capabilities"
+            }
+        )
+    }
+
     private fun publishCapabilityWidgets() {
         capabilityRegistry.allProviders().forEach { provider ->
             val spec = runCatching { provider.widgetSpec() }.getOrNull()

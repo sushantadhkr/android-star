@@ -1,6 +1,7 @@
 package com.personal.base.core.capability
 
 import com.personal.base.core.logging.PlatformLogger
+import kotlinx.coroutines.runBlocking
 import com.personal.base.core.platform.NotificationActionContract
 import com.personal.base.core.platform.NotificationButton
 import com.personal.base.core.platform.NotificationInput
@@ -8,6 +9,7 @@ import com.personal.base.core.platform.ServerResponse
 import com.personal.base.core.plugin.PlatformLocation
 import com.personal.base.platform.capabilities.AudioStreamCapabilityProvider
 import com.personal.base.platform.capabilities.AllFilesAccessCapabilityProvider
+import com.personal.base.platform.capabilities.BackgroundWorkCapabilityProvider
 import com.personal.base.platform.capabilities.BiometricAuthCapabilityProvider
 import com.personal.base.platform.capabilities.BluetoothCapabilityProvider
 import com.personal.base.platform.capabilities.BluetoothDeviceInfo
@@ -40,6 +42,7 @@ import com.personal.base.platform.capabilities.DeviceAdminCapabilityProvider
 import com.personal.base.platform.capabilities.DeviceInfoCapabilityProvider
 import com.personal.base.platform.capabilities.DisplayCapabilityProvider
 import com.personal.base.platform.capabilities.InputMethodCapabilityProvider
+import com.personal.base.platform.capabilities.KeyguardCapabilityProvider
 import com.personal.base.platform.capabilities.DoNotDisturbCapabilityProvider
 import com.personal.base.platform.capabilities.FlashlightCapabilityProvider
 import com.personal.base.platform.capabilities.InstalledAppsCapabilityProvider
@@ -49,6 +52,8 @@ import com.personal.base.platform.capabilities.NotificationCapabilityProvider
 import com.personal.base.platform.capabilities.NfcCapabilityProvider
 import com.personal.base.platform.capabilities.OnDeviceMlCapabilityProvider
 import com.personal.base.platform.capabilities.QrBarcodeCapabilityProvider
+import com.personal.base.platform.capabilities.PhoneCapabilityProvider
+import com.personal.base.platform.capabilities.RestrictedShellCapabilityProvider
 import com.personal.base.platform.capabilities.ScreenCaptureCapabilityProvider
 import com.personal.base.platform.capabilities.SharingCapabilityProvider
 import com.personal.base.platform.capabilities.SimSubscriptionCapabilityProvider
@@ -88,7 +93,15 @@ class CapabilityActions(
     private val logger: PlatformLogger,
     /** Records notification button presses. Absent only where nothing records them. */
     private val actionLog: NotificationActionLog? = null
-) {
+ ) {
+
+    private companion object {
+        /** A command like `top -n 1` can print thousands of lines; a caller who wants more asks for slices. */
+        const val MAX_OUTPUT_LINES = 200
+
+        /** Beyond this a caller is almost certainly not scheduling work, and a long hold is useless. */
+        const val MAX_WORK_DELAY_SECONDS = 7 * 24 * 60 * 60L
+    }
 
     /** Every capability with a callable surface. */
     val specs: List<CapabilitySpec> by lazy { buildSpecs() }
@@ -610,6 +623,93 @@ class CapabilityActions(
                     """{"capability":"SPEECH_RECOGNITION","action":"status"}""",
                     """{"available":true,"recognizing":false,"lastTranscript":""}""",
                     handler = { p -> speechStatus(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.KEYGUARD, "The lock screen's own state", listOf(
+                ActionSpec(
+                    "status",
+                    "Whether the screen is locked and whether the device has a secure lock set",
+                    emptyList(),
+                    """{"capability":"KEYGUARD","action":"status"}""",
+                    """{"locked":false,"deviceSecure":true}""",
+                    handler = { p -> keyguardStatus(p) }
+                )
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.RESTRICTED_SHELL, "Run a short allowlist of shell commands", listOf(
+                ActionSpec(
+                    "execute",
+                    "Run one allowlisted command and return what it printed",
+                    listOf(
+                        ParamDoc(
+                            "command", "string", true,
+                            "The command and its arguments. Only ping, df, ip, getprop, uname, uptime, " +
+                                "top and date are permitted; anything else is refused before it runs.",
+                            "df -h"
+                        )
+                    ),
+                    """{"capability":"RESTRICTED_SHELL","action":"execute","command":"df -h"}""",
+                    """{"command":"df -h","exitCode":0,"allowed":true,"output":"Filesystem  Size  Used..."}""",
+                    handler = { p -> runBlocking { shellExecute(p) } }
+                )
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.PHONE, "The phone line, SIM and radio", listOf(
+                ActionSpec(
+                    "status",
+                    "What the phone line looks like. Fields that need READ_PHONE_STATE are named " +
+                        "in 'withheld' rather than returned blank, so a missing value is never " +
+                        "mistaken for an empty one.",
+                    emptyList(),
+                    """{"capability":"PHONE","action":"status"}""",
+                    """{"hasTelephony":true,"phoneCount":2,"permissionGranted":true,"networkOperator":"310260","simState":"READY"}""",
+                    handler = { p -> phoneStatus(p) }
+                )
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.BACKGROUND_WORK, "Work that outlives the request that asked for it", listOf(
+                ActionSpec(
+                    "tasks",
+                    "The work this platform will accept. Only registered tasks can be scheduled; " +
+                        "nothing arbitrary is run.",
+                    emptyList(),
+                    """{"capability":"BACKGROUND_WORK","action":"tasks"}""",
+                    """{"tasks":[{"name":"storage.scan","description":"Re-index downloaded files"}]}""",
+                    handler = { p -> workTasks(p) }
+                ),
+                ActionSpec(
+                    "enqueue",
+                    "Hand a registered task to the phone and get an id back",
+                    listOf(
+                        ParamDoc("task", "string", true, "The name of a task, from 'tasks'", "storage.scan"),
+                        ParamDoc("requireNetwork", "boolean", false, "Hold the work until the phone is online", "false"),
+                        ParamDoc("requireCharging", "boolean", false, "Hold the work until the phone is charging", "false"),
+                        ParamDoc("delaySeconds", "integer", false, "Hold the work at least this long", "0")
+                    ),
+                    """{"capability":"BACKGROUND_WORK","action":"enqueue","task":"storage.scan","requireCharging":true}""",
+                    """{"enqueued":true,"task":"storage.scan","workId":"a1b2c3"}""",
+                    handler = { p -> workEnqueue(p) }
+                ),
+                ActionSpec(
+                    "list",
+                    "Every unit of capability work, with the state it reached",
+                    emptyList(),
+                    """{"capability":"BACKGROUND_WORK","action":"list"}""",
+                    """{"work":[{"task":"storage.scan","state":"SUCCEEDED","lastResult":"Indexed 12 files"}]}""",
+                    handler = { p -> workList(p) }
+                ),
+                ActionSpec(
+                    "cancel",
+                    "Stop a unit of capability work",
+                    listOf(ParamDoc("task", "string", true, "The name of a task", "storage.scan")),
+                    """{"capability":"BACKGROUND_WORK","action":"cancel","task":"storage.scan"}""",
+                    """{"cancelled":true}""",
+                    handler = { p -> workCancel(p) }
+                )
             )
         ),
         CapabilitySpec(
@@ -1780,6 +1880,174 @@ class CapabilityActions(
         } finally {
             runCatching { codec.stop() }
             runCatching { codec.release() }
+        }
+    }
+
+    private fun keyguardStatus(p: JsonObject): ServerResponse {
+        val provider = provider<KeyguardCapabilityProvider>(CapabilityType.KEYGUARD)
+            ?: return unsupported(CapabilityType.KEYGUARD)
+        return ServerResponse.json(
+            buildJsonObject {
+                put("locked", provider.isKeyguardLocked)
+                put("deviceSecure", provider.isDeviceSecure)
+            }.toString()
+        )
+    }
+
+    /**
+     * Runs one allowlisted command.
+     *
+     * The allowlist lives in the provider and is checked before anything is executed, so a caller
+     * cannot smuggle a binary past the name check by hiding it in an argument. A refused command
+     * answers 403 with what was allowed — which is more useful than a bare refusal.
+     */
+    private suspend fun shellExecute(p: JsonObject): ServerResponse {
+        val provider = provider<RestrictedShellCapabilityProvider>(CapabilityType.RESTRICTED_SHELL)
+            ?: return unsupported(CapabilityType.RESTRICTED_SHELL)
+        val command = p.string("command") ?: return badRequest("Missing 'command'")
+
+        val result = provider.executeAllowlisted(command)
+
+        if (!result.isAllowed) {
+            return ServerResponse(
+                403, "application/json",
+                """{"error":"Not on the allowlist","command":"${result.command}","output":"${result.output}"}"""
+            )
+        }
+
+        return ServerResponse.json(
+            buildJsonObject {
+                put("command", result.command)
+                put("exitCode", result.exitCode)
+                put("allowed", true)
+                // Trimmed because a command like `top -n 1` can print thousands of lines, and a
+                // caller who wanted all of it can ask for it in slices.
+                put("output", result.output.trim().lines().take(MAX_OUTPUT_LINES).joinToString("\n"))
+                put("truncated", result.output.trim().lines().size > MAX_OUTPUT_LINES)
+            }.toString()
+        )
+    }
+
+    private fun phoneStatus(p: JsonObject): ServerResponse {
+        val provider = provider<PhoneCapabilityProvider>(CapabilityType.PHONE)
+            ?: return unsupported(CapabilityType.PHONE)
+        val status = provider.status()
+        return ServerResponse.json(
+            buildJsonObject {
+                put("hasTelephony", status.hasTelephony)
+                put("phoneCount", status.phoneCount)
+                put("permissionGranted", status.permissionGranted)
+                put("networkOperator", status.networkOperator)
+                put("simOperator", status.simOperator)
+                put("simCountryIso", status.simCountryIso)
+                put("simState", status.simState)
+                put("networkType", status.networkType)
+                // Never a number: carriers return nothing for this even when permitted, and a
+                // blank field here would read as "your number is blank" rather than "not knowable".
+                put("phoneNumberAvailable", false)
+                put("withheld", buildJsonArray { status.withheld.forEach { add(JsonPrimitive(it)) } })
+                if (!status.permissionGranted) {
+                    put("grantVia", "android.settings.APPLICATION_DETAILS_SETTINGS")
+                }
+            }.toString()
+        )
+    }
+
+    private fun workTasks(p: JsonObject): ServerResponse {
+        val provider = provider<BackgroundWorkCapabilityProvider>(CapabilityType.BACKGROUND_WORK)
+            ?: return unsupported(CapabilityType.BACKGROUND_WORK)
+        return ServerResponse.json(
+            buildJsonObject {
+                put("tasks", buildJsonArray {
+                    provider.taskNames().forEach { name ->
+                        add(
+                            buildJsonObject {
+                                put("name", name)
+                            }
+                        )
+                    }
+                })
+            }.toString()
+        )
+    }
+
+    /**
+     * Schedules work.
+     *
+     * An unknown task name is refused rather than enqueued and failed later: naming a task that
+     * does not exist is a caller mistake, and answering 200 with an id for work that will never
+     * happen is precisely the fake success this platform does not ship.
+     */
+    private fun workEnqueue(p: JsonObject): ServerResponse {
+        val provider = provider<BackgroundWorkCapabilityProvider>(CapabilityType.BACKGROUND_WORK)
+            ?: return unsupported(CapabilityType.BACKGROUND_WORK)
+        val name = p.string("task") ?: return badRequest("Missing 'task'")
+
+        if (provider.taskNamed(name) == null) {
+            return badRequest(
+                "No task named '$name' is registered. Known tasks: " +
+                    provider.taskNames().joinToString(", ").ifEmpty { "(none)" }
+            )
+        }
+
+        val delay = p.long("delaySeconds") ?: 0L
+        if (delay < 0 || delay > MAX_WORK_DELAY_SECONDS) {
+            return badRequest("'delaySeconds' must be 0-${MAX_WORK_DELAY_SECONDS}")
+        }
+
+        val workId = provider.enqueue(
+            name = name,
+            payload = JsonObject(p.filterKeys { it != "capability" && it != "action" }),
+            requireNetwork = p.boolean("requireNetwork") ?: false,
+            requireCharging = p.boolean("requireCharging") ?: false,
+            delaySeconds = delay
+        ) ?: return ServerResponse(
+            503, "application/json",
+            """{"error":"WorkManager is not available, so nothing was scheduled"}"""
+        )
+
+        return ServerResponse.json(
+            """{"enqueued":true,"task":"$name","workId":"$workId"}"""
+        )
+    }
+
+    private fun workList(p: JsonObject): ServerResponse {
+        val provider = provider<BackgroundWorkCapabilityProvider>(CapabilityType.BACKGROUND_WORK)
+            ?: return unsupported(CapabilityType.BACKGROUND_WORK)
+        return ServerResponse.json(
+            buildJsonObject {
+                put("work", buildJsonArray {
+                    provider.list().forEach { work ->
+                        add(
+                            buildJsonObject {
+                                put("task", work.name)
+                                put("id", work.id)
+                                put("state", work.state)
+                                put("runAttemptCount", work.runAttemptCount)
+                                put("lastResult", work.lastResult)
+                                put("lastError", work.lastError)
+                            }
+                        )
+                    }
+                })
+            }.toString()
+        )
+    }
+
+    private fun workCancel(p: JsonObject): ServerResponse {
+        val provider = provider<BackgroundWorkCapabilityProvider>(CapabilityType.BACKGROUND_WORK)
+            ?: return unsupported(CapabilityType.BACKGROUND_WORK)
+        val name = p.string("task") ?: return badRequest("Missing 'task'")
+        val cancelled = provider.cancel(name)
+        return if (cancelled) {
+            ServerResponse.json("""{"cancelled":true,"task":"$name"}""")
+        } else {
+            // Nothing was running under that name. Saying so is better than reporting a
+            // cancellation that did not cancel anything.
+            ServerResponse(
+                404, "application/json",
+                """{"error":"Nothing is queued under '$name'","cancelled":false}"""
+            )
         }
     }
 
