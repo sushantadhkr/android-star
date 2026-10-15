@@ -49,7 +49,12 @@ data class AppRegistration(
  */
 data class DeclaredContribution(
     val hasCard: Boolean = false,
-    val actionLabels: List<Pair<String, String>> = emptyList()
+    val actionLabels: List<Pair<String, String>> = emptyList(),
+    /**
+     * The widget this App declared, kept so switching the App off and on again brings its tile
+     * back rather than losing it.
+     */
+    val widget: WidgetSpec? = null
 )
 
 /**

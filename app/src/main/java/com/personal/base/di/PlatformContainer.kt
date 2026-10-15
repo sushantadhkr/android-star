@@ -1,5 +1,7 @@
 package com.personal.base.di
 
+import android.content.ComponentName
+import android.appwidget.AppWidgetManager
 import android.content.Context
 import com.personal.base.core.app.AppManager
 import com.personal.base.core.app.AppToggleStore
@@ -118,9 +120,15 @@ import com.personal.base.platform.capabilities.MediaStreamEncoderCapabilityProvi
 import com.personal.base.platform.capabilities.NetworkUsageCapabilityProvider
 import com.personal.base.platform.capabilities.NfcCapabilityProvider
 import com.personal.base.core.capability.NotificationActionLog
+import com.personal.base.core.app.WidgetRegistry
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import com.personal.base.core.platform.DownloadLocationStore
 import com.personal.base.platform.capabilities.NotificationCapabilityProvider
 import com.personal.base.receiver.NotificationActionReceiver
+import com.personal.base.shell.PlatformWidgetProvider
 import com.personal.base.platform.capabilities.NotificationListenerCapabilityProvider
 import com.personal.base.platform.capabilities.OnDeviceMlCapabilityProvider
 import com.personal.base.platform.capabilities.OverlayWindowCapabilityProvider
@@ -167,6 +175,7 @@ class PlatformContainer(val context: Context) {
     val apiTokenStore = ApiTokenStore(context)
     val notificationActionLog = NotificationActionLog()
     val downloadLocation = DownloadLocationStore(context)
+    val widgetRegistry = WidgetRegistry()
     val capabilityActions = CapabilityActions(capabilityRegistry, logger, notificationActionLog)
     val capabilityApi = CapabilityApi(
         registry = capabilityRegistry,
@@ -200,8 +209,18 @@ class PlatformContainer(val context: Context) {
         platformContext = platformContext,
         toggleStore = appToggleStore,
         logger = logger,
-        channelManager = notificationChannelManager
+        channelManager = notificationChannelManager,
+        widgetRegistry = widgetRegistry
     )
+
+    /**
+     * An App the shell has been asked to open, waiting for the UI to navigate.
+     *
+     * A home-screen widget tap arrives as an Activity intent, and navigation lives in Compose. A
+     * flow is the honest bridge: the Activity says what was asked for, the screen consumes it once
+     * it is composed, and the request does not survive being handled twice.
+     */
+    val pendingOpenApp = MutableStateFlow<String?>(null)
 
     // 6. C. Runtime and Infrastructure (32 components)
     val localDatabase = LocalDatabase(context, logger)
@@ -292,6 +311,22 @@ class PlatformContainer(val context: Context) {
         // Telling it here is what lets a progress notification carry working Cancel and Retry.
         com.personal.base.core.platform.ProgressNotifier.RECEIVER_CLASS =
             NotificationActionReceiver::class.java.name
+
+        // Redraw home-screen tiles whenever an App publishes, updates or withdraws one. Polling
+        // the launcher instead would mean a tile that lags behind by up to the poll interval.
+        CoroutineScope(Dispatchers.Default).launch {
+            widgetRegistry.widgets.collect {
+                runCatching {
+                    val manager = context.getSystemService(
+                        Context.APPWIDGET_SERVICE
+                    ) as? AppWidgetManager
+                    val ids: IntArray = manager?.getAppWidgetIds(
+                        ComponentName(context, PlatformWidgetProvider::class.java)
+                    ) ?: IntArray(0)
+                    if (ids.isNotEmpty()) PlatformWidgetProvider().refresh(context)
+                }
+            }
+        }
 
         // Install Crash Interceptor
         crashHandler.install()

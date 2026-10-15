@@ -29,7 +29,9 @@ class AppManager(
      * Optional so lifecycle rules stay testable without Android. When supplied, scopes created here
      * post to the App's own notification channel, which is what makes per-App muting work.
      */
-    private val channelManager: com.personal.base.core.runtime.NotificationChannelManager? = null
+    private val channelManager: com.personal.base.core.runtime.NotificationChannelManager? = null,
+    /** Null where widgets are not hosted; Apps then simply have no home-screen tile. */
+    val widgetRegistry: WidgetRegistry? = null
 ) {
 
     private val registrations = LinkedHashMap<String, AppRegistration>()
@@ -142,9 +144,14 @@ class AppManager(
             } else {
                 createInstance(registration)
             }
+            // Bring the widget back with the App, rather than leaving a tile that was withdrawn
+            // when it was switched off.
+            declarations[appId]?.widget?.let { widgetRegistry?.publish(appId, it, true) }
         } else {
             destroyInstance(appId)
             if (_activeAppId.value == appId) _activeAppId.value = null
+            widgetRegistry?.withdraw(appId)
+            logger.i("AppManager", "App '$appId' withdrawn its widget")
         }
         publish()
     }
@@ -171,7 +178,7 @@ class AppManager(
      * is still exactly one instance per App.
      */
     fun appScope(appId: String): AppScope =
-        AppScopeImpl(this, appId, platformContext, channelManager, logger)
+        AppScopeImpl(this, appId, platformContext, channelManager, logger, widgetRegistry)
 
     fun isEnabled(appId: String): Boolean = toggleStore.isEnabled(appId)
 
@@ -234,8 +241,18 @@ class AppManager(
             val contribution = app.contribution
             declarations[registration.id] = DeclaredContribution(
                 hasCard = contribution.dashboardCard != null,
-                actionLabels = contribution.dashboardActions.map { it.id to it.label }
+                actionLabels = contribution.dashboardActions.map { it.id to it.label },
+                widget = contribution.widget
             )
+            contribution.widget?.let {
+                widgetRegistry?.publish(registration.id, it, true)
+                // Widgets live outside the app, so a tile that never appears has to be
+                // diagnosable from the one log the platform keeps.
+                logger.i(
+                    "AppManager",
+                    "App '${registration.id}' published widget '${it.id}' (${it.title})"
+                )
+            }
 
             logger.i("AppManager", "Started app '${registration.name}' [${registration.id}]")
         } catch (e: Exception) {

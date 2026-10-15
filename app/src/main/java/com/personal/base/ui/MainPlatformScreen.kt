@@ -28,6 +28,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -115,6 +116,19 @@ fun MainPlatformScreen(
     var overflowOpen by remember { mutableStateOf(false) }
     val activeAppId by container.appManager.activeAppId.collectAsState()
     val activeApp = activeAppId?.let { container.appManager.instanceOf(it) }
+
+    // A home-screen widget tap asks for an App to open. Consumed once and cleared, so returning to
+    // the platform later does not re-open whatever was tapped last.
+    val pendingOpen by container.pendingOpenApp.collectAsState()
+    LaunchedEffect(pendingOpen) {
+        val appId = pendingOpen ?: return@LaunchedEffect
+        if (container.appManager.isEnabled(appId)) {
+            container.appManager.openApp(appId)
+        } else {
+            container.logger.w("MainPlatformScreen", "Widget asked for '$appId', which is switched off")
+        }
+        container.pendingOpenApp.value = null
+    }
 
     // Back closes an open overlay instead of leaving the app. Without this the system back button
     // would exit the platform while a sub-page was still open.

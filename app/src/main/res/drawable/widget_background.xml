@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Defined here rather than borrowed from the framework: the obvious candidates
+  (secondary_modal_dialog_background and friends) are not public API, and a widget
+  whose background fails to resolve does not render at all.
+
+  Translucent, so it sits correctly on a light or dark launcher without the
+  platform having to ship two themes.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="16dp" />
+    <solid android:color="#D91B1B1F" />
+</shape>

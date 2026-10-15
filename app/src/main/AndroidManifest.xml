@@ -184,6 +184,24 @@
             </intent-filter>
         </receiver>
 
+        <!--
+          The one home-screen widget, for every App.
+
+          Declared once by the shell and rendering whatever Apps publish, so an App gains a widget
+          without ever editing this file. Without it, each widget App would need its own provider
+          here — which is exactly the shell-editing this platform is built to avoid.
+        -->
+        <receiver
+            android:name=".shell.PlatformWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/platform_widget_info" />
+        </receiver>
+
         <!-- Notification button presses. Explicit only, so nothing else can fire it. -->
         <receiver
             android:name=".receiver.NotificationActionReceiver"

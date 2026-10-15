@@ -20,10 +20,17 @@ import com.personal.base.platform.capabilities.SharingCapabilityProvider
 class PlatformContextImpl(
     private val capabilityRegistry: PlatformCapabilityRegistry,
     override val logger: PlatformLogger,
-    private val context: Context
+    private val context: Context,
+    /** Null where widgets are not hosted. */
+    private val widgetRegistry: com.personal.base.core.app.WidgetRegistry? = null,
+    private val appId: String = "platform"
 ) : PlatformContext {
 
     override fun appContext(): Context = context
+
+    override fun publishWidget(spec: com.personal.base.core.app.WidgetSpec?) {
+        widgetRegistry?.publish(appId, spec)
+    }
 
     override fun hasCapability(type: CapabilityType): Boolean {
         return capabilityRegistry.isAvailable(type)

@@ -20,7 +20,8 @@ class AppScopeImpl(
     override val appId: String,
     override val context: PlatformContext,
     private val channelManager: NotificationChannelManager? = null,
-    private val logger: PlatformLogger? = null
+    private val logger: PlatformLogger? = null,
+    private val widgetRegistry: WidgetRegistry? = null
 ) : AppScope {
 
     override val isEnabled: Boolean
@@ -29,6 +30,21 @@ class AppScopeImpl(
     /** The live instance, or null when the App is switched off. */
     val instance: PlatformApp?
         get() = manager.instanceOf(appId)
+
+    /**
+     * Publishes this App's home-screen widget.
+     *
+     * Refused while the App is switched off. A tile left on someone's home screen for an App they
+     * turned off is worse than no tile: it looks live and does nothing.
+     */
+    override fun publishWidget(spec: WidgetSpec?) {
+        widgetRegistry?.publish(appId, spec, manager.isEnabled(appId))
+    }
+
+    override fun updateWidgetStatus(status: String) {
+        val existing = widgetRegistry?.forApp(appId)?.spec ?: return
+        widgetRegistry?.publish(appId, existing.copy(status = status), manager.isEnabled(appId))
+    }
 
     /** Namespaced per App so two Apps showing progress cannot overwrite each other. */
     private val notifier by lazy { ProgressNotifier(context.appContext(), logger ?: PlatformLogger()) }

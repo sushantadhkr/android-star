@@ -45,6 +45,13 @@ class MainActivity : ComponentActivity() {
     private fun handleIncomingIntent(intent: Intent?) {
         if (intent == null) return
 
+        // A home-screen widget tap. Named rather than inferred from the action, because the
+        // launcher starts this activity with no action at all.
+        intent.getStringExtra(EXTRA_OPEN_APP)?.let { appId ->
+            container.logger.i("MainActivity", "Opening app from a widget: $appId")
+            container.pendingOpenApp.value = appId
+        }
+
         when (intent.action) {
             Intent.ACTION_VIEW -> {
                 val data = intent.data
@@ -59,5 +66,13 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    companion object {
+        /** Which App a widget tap should open. */
+        const val EXTRA_OPEN_APP = "com.personal.base.extra.OPEN_APP"
+
+        /** Where inside that App to land, when the widget named one. */
+        const val EXTRA_OPEN_ROUTE = "com.personal.base.extra.OPEN_ROUTE"
     }
 }

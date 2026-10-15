@@ -48,6 +48,15 @@ interface PlatformContext {
      */
     fun appContext(): Context
 
+    /**
+     * Shows or updates this App's home-screen widget.
+     *
+     * On the facade rather than the App class, because that is the one thing an App is given when
+     * it starts — and a widget that could only be set from a composable would be no use to a
+     * headless App doing a background job.
+     */
+    fun publishWidget(spec: com.personal.base.core.app.WidgetSpec?)
+
     /** Triggers haptic vibration feedback. */
     fun triggerHaptic(durationMs: Long = 100L)
 

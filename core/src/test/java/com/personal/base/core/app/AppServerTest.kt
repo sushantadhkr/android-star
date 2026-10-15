@@ -196,6 +196,7 @@ class AppServerTest {
 
     private object FakeContext : PlatformContext {
         // These fakes test lifecycle, not platform services, so there is no real Context here.
+        override fun publishWidget(spec: WidgetSpec?) = Unit
         override fun appContext(): android.content.Context =
             throw UnsupportedOperationException("a fake context has no Android Context")
         override val logger: PlatformLogger = PlatformLogger()

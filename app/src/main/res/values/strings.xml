@@ -4,4 +4,6 @@
     <string name="shortcut_diagnostics_long">Run System Diagnostics</string>
     <string name="shortcut_sync">Sync</string>
     <string name="shortcut_sync_long">Trigger Platform Background Sync</string>
+    <string name="widget_description">An Android Star App on your home screen</string>
+    <string name="widget_empty">No app is switched on</string>
 </resources>

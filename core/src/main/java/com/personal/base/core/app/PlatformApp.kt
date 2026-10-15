@@ -21,7 +21,16 @@ data class AppContribution(
     val dashboardActions: List<DashboardAction> = emptyList(),
 
     /** The App's settings section. Null means no settings. */
-    val settingsSection: (@Composable (AppScope) -> Unit)? = null
+    val settingsSection: (@Composable (AppScope) -> Unit)? = null,
+
+    /**
+     * The App's home-screen widget.
+     *
+     * Declared as data rather than as a view, so the platform's one widget provider renders it.
+     * An App therefore still needs nothing but this file — no RemoteViews, no layout XML, and no
+     * manifest entry in the shell.
+     */
+    val widget: WidgetSpec? = null
 )
 
 /**
@@ -63,6 +72,17 @@ interface AppScope {
      * The channel is created on first use, so no setup is required.
      */
     fun postNotification(title: String, message: String, priorityHigh: Boolean = false)
+
+    /**
+     * Shows or updates this App's home-screen widget.
+     *
+     * The App's toggle governs it like everything else: switching the App off withdraws the widget
+     * rather than leaving a tile on someone's home screen that no longer works.
+     */
+    fun publishWidget(spec: WidgetSpec?)
+
+    /** Updates the status line of the widget already published, if there is one. */
+    fun updateWidgetStatus(status: String)
 
     /**
      * Report a long-running job in the shade, with the same bar and controls the platform uses for
