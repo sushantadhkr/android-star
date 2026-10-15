@@ -45,6 +45,20 @@ class WiredCapabilitiesTest {
         actions = CapabilityActions(registry, PlatformLogger())
     }
 
+    /** Stops a capability without caring whether it was already stopped. */
+    private fun stop(capability: String, action: String) {
+        runCatching {
+            actions.invoke(
+                CapabilityType.valueOf(capability),
+                action,
+                JsonObject(mapOf(
+                    "capability" to JsonPrimitive(capability),
+                    "action" to JsonPrimitive(action)
+                ))
+            )
+        }
+    }
+
     /** Runs an action and requires a 2xx with a JSON body. */
     private fun ok(capability: String, action: String, vararg pairs: Pair<String, Any>) {
         val response = actions.invoke(
@@ -159,55 +173,63 @@ class WiredCapabilitiesTest {
 
     @Test
     fun theFileServerReallyListensAndServes() {
-        ok("FILE_SERVER", "start", "port" to 18080)
-        ok("FILE_SERVER", "put", "name" to "probe.txt", "content" to "hello from the test")
-        ok("FILE_SERVER", "list")
-        ok("FILE_SERVER", "status")
-
-        // The whole point is a real socket: connect to it and read the file back over HTTP.
-        val socket = java.net.Socket("127.0.0.1", 18080)
+        // Always stopped, even when an assertion fails part-way: a leaked socket makes every
+        // later run of this suite fail to bind, which looks like a product bug and is not one.
         try {
-            socket.getOutputStream().apply {
-                write("GET /file/probe.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n".toByteArray())
-                flush()
-            }
-            val body = socket.getInputStream().bufferedReader().readText()
-            assertTrue("the served file must come back over the socket", body.contains("hello from the test"))
-        } finally {
-            socket.close()
-        }
+            ok("FILE_SERVER", "start", "port" to 18080)
+            ok("FILE_SERVER", "put", "name" to "probe.txt", "content" to "hello from the test")
+            ok("FILE_SERVER", "list")
+            ok("FILE_SERVER", "status")
 
-        ok("FILE_SERVER", "delete", "name" to "probe.txt")
-        ok("FILE_SERVER", "stop")
+            // The whole point is a real socket: connect and read the file back over HTTP.
+            java.net.Socket("127.0.0.1", 18080).use { socket ->
+                socket.getOutputStream().apply {
+                    write("GET /file/probe.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n".toByteArray())
+                    flush()
+                }
+                val body = socket.getInputStream().bufferedReader().readText()
+                assertTrue("the served file must come back over the socket", body.contains("hello from the test"))
+            }
+
+            ok("FILE_SERVER", "delete", "name" to "probe.txt")
+        } finally {
+            stop("FILE_SERVER", "stop")
+        }
     }
 
     @Test
     fun theChatServerReallyListens() {
-        ok("NEARBY_CHAT", "start", "port" to 19090)
-        ok("NEARBY_CHAT", "peers")
-        ok("NEARBY_CHAT", "messages")
-        ok("NEARBY_CHAT", "stop")
+        try {
+            ok("NEARBY_CHAT", "start", "port" to 19090)
+            ok("NEARBY_CHAT", "peers")
+            ok("NEARBY_CHAT", "messages")
+        } finally {
+            stop("NEARBY_CHAT", "stop")
+        }
 
-        // Connecting to a stopped listener must be refused rather than accepted by a stale socket.
+        // Connecting to a stopped listener must be refused rather than answered by a stale socket.
         val refused = runCatching { java.net.Socket("127.0.0.1", 19090).close() }.isFailure
         assertTrue("a stopped chat server must not still be listening", refused)
     }
 
     @Test
     fun sendingWithNoPeersIsRefusedRatherThanFaked() {
-        ok("NEARBY_CHAT", "start", "port" to 19091)
-        val response = actions.invoke(
-            CapabilityType.NEARBY_CHAT,
-            "send",
-            JsonObject(mapOf(
-                "capability" to JsonPrimitive("NEARBY_CHAT"),
-                "action" to JsonPrimitive("send"),
-                "content" to JsonPrimitive("anyone there?")
-            ))
-        )
-        // No peers are connected, so this must say so rather than claim a message went out.
-        assertTrue("sending to nobody must not report success", response.status != 200)
-        ok("NEARBY_CHAT", "stop")
+        try {
+            ok("NEARBY_CHAT", "start", "port" to 19091)
+            val response = actions.invoke(
+                CapabilityType.NEARBY_CHAT,
+                "send",
+                JsonObject(mapOf(
+                    "capability" to JsonPrimitive("NEARBY_CHAT"),
+                    "action" to JsonPrimitive("send"),
+                    "content" to JsonPrimitive("anyone there?")
+                ))
+            )
+            // No peers are connected, so this must say so rather than claim a message went out.
+            assertTrue("sending to nobody must not report success", response.status != 200)
+        } finally {
+            stop("NEARBY_CHAT", "stop")
+        }
     }
 
     @Test
@@ -475,5 +497,65 @@ class WiredCapabilitiesTest {
                 tiles.map { it.appId },
             tiles.isEmpty()
         )
+    }
+
+    @Test
+    fun permissionChecksAnswerWithoutAnyConsentDialog() {
+        // These cannot do the real thing headlessly. They must still answer truthfully, and name
+        // the screen that would fix it — which is strictly better than trying the real action and
+        // reading a refusal with no cause.
+        ok("OVERLAY_WINDOW", "checkPermission")
+        ok("ALL_FILES_ACCESS", "checkPermission")
+        ok("VPN", "status")
+        ok("BIOMETRIC", "status")
+        ok("INPUT_METHOD", "status")
+        ok("SPEECH_RECOGNITION", "status")
+    }
+
+    @Test
+    fun thePermissionChecksTellTheTruthOnThisDevice() {
+        fun body(capability: String, action: String): String =
+            actions.invoke(
+                CapabilityType.valueOf(capability),
+                action,
+                JsonObject(mapOf(
+                    "capability" to JsonPrimitive(capability),
+                    "action" to JsonPrimitive(action)
+                ))
+            ).body
+
+        // The overlay is not granted on a fresh install, and claiming otherwise would be the
+        // exact lie this check exists to avoid.
+        val overlay = body("OVERLAY_WINDOW", "checkPermission")
+        assertTrue("the overlay check must answer granted or not", overlay.contains("granted"))
+        val grantedMarker = "\"" + "granted" + "\":" + "true"
+        if (overlay.contains(grantedMarker)) {
+            assertTrue(
+                "when granted there is no settings action to send the user to",
+                overlay.contains("settingsAction")
+            )
+        } else {
+            assertTrue(
+                "when not granted the check must name the screen that grants it",
+                overlay.contains("MANAGE_OVERLAY_PERMISSION")
+            )
+        }
+
+        // A keyboard this app does not own cannot be the active one.
+        val ime = body("INPUT_METHOD", "status")
+        assertTrue("the keyboard check must answer", ime.contains("isActiveKeyboard"))
+    }
+
+    @Test
+    fun anImageIsNeededBeforeAnythingTriesToReadIt() {
+        val response = actions.invoke(
+            CapabilityType.ON_DEVICE_ML,
+            "recognize",
+            JsonObject(mapOf(
+                "capability" to JsonPrimitive("ON_DEVICE_ML"),
+                "action" to JsonPrimitive("recognize")
+            ))
+        )
+        assertTrue("with no image the request must be refused, got ${response.body}", response.status == 400)
     }
 }

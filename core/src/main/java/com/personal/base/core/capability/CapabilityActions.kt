@@ -7,6 +7,8 @@ import com.personal.base.core.platform.NotificationInput
 import com.personal.base.core.platform.ServerResponse
 import com.personal.base.core.plugin.PlatformLocation
 import com.personal.base.platform.capabilities.AudioStreamCapabilityProvider
+import com.personal.base.platform.capabilities.AllFilesAccessCapabilityProvider
+import com.personal.base.platform.capabilities.BiometricAuthCapabilityProvider
 import com.personal.base.platform.capabilities.BluetoothCapabilityProvider
 import com.personal.base.platform.capabilities.BluetoothDeviceInfo
 import com.personal.base.platform.capabilities.DownloadManagerCapabilityProvider
@@ -15,6 +17,7 @@ import com.personal.base.platform.capabilities.GeofenceActivityCapabilityProvide
 import com.personal.base.platform.capabilities.HealthConnectCapabilityProvider
 import com.personal.base.platform.capabilities.LocationCapabilityProvider
 import com.personal.base.platform.capabilities.MediaDownloadCapabilityProvider
+import com.personal.base.platform.capabilities.MediaStreamEncoderCapabilityProvider
 import com.personal.base.platform.capabilities.MediaSessionCapabilityProvider
 import com.personal.base.platform.capabilities.NearbyChatCapabilityProvider
 import com.personal.base.platform.capabilities.PeerAuthDecision
@@ -36,6 +39,7 @@ import com.personal.base.platform.capabilities.DeviceActionCapabilityProvider
 import com.personal.base.platform.capabilities.DeviceAdminCapabilityProvider
 import com.personal.base.platform.capabilities.DeviceInfoCapabilityProvider
 import com.personal.base.platform.capabilities.DisplayCapabilityProvider
+import com.personal.base.platform.capabilities.InputMethodCapabilityProvider
 import com.personal.base.platform.capabilities.DoNotDisturbCapabilityProvider
 import com.personal.base.platform.capabilities.FlashlightCapabilityProvider
 import com.personal.base.platform.capabilities.InstalledAppsCapabilityProvider
@@ -43,6 +47,7 @@ import com.personal.base.platform.capabilities.MediaLibraryCapabilityProvider
 import com.personal.base.platform.capabilities.NetworkUsageCapabilityProvider
 import com.personal.base.platform.capabilities.NotificationCapabilityProvider
 import com.personal.base.platform.capabilities.NfcCapabilityProvider
+import com.personal.base.platform.capabilities.OnDeviceMlCapabilityProvider
 import com.personal.base.platform.capabilities.QrBarcodeCapabilityProvider
 import com.personal.base.platform.capabilities.ScreenCaptureCapabilityProvider
 import com.personal.base.platform.capabilities.SharingCapabilityProvider
@@ -50,12 +55,15 @@ import com.personal.base.platform.capabilities.SimSubscriptionCapabilityProvider
 import com.personal.base.platform.capabilities.SmsCapabilityProvider
 import com.personal.base.platform.capabilities.SmsMessage
 import com.personal.base.platform.capabilities.SensorsCapabilityProvider
+import com.personal.base.platform.capabilities.SpeechRecognitionCapabilityProvider
 import com.personal.base.platform.capabilities.StorageCapabilityProvider
 import com.personal.base.platform.capabilities.SystemSettingsCapabilityProvider
 import com.personal.base.platform.capabilities.TelephonyCallLogCapabilityProvider
 import com.personal.base.platform.capabilities.TextToSpeechCapabilityProvider
 import com.personal.base.platform.capabilities.UsbCapabilityProvider
+import com.personal.base.platform.capabilities.VpnCapabilityProvider
 import com.personal.base.platform.capabilities.WifiCapabilityProvider
+import com.personal.base.platform.capabilities.OverlayWindowCapabilityProvider
 import com.personal.base.platform.permissions.RestrictedPermissions
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -512,6 +520,96 @@ class CapabilityActions(
                 ActionSpec("forget", "Forget every trusted peer", emptyList(),
                     """{"capability":"NEARBY_CHAT","action":"forget"}""",
                     """{"cleared":true}""", handler = { p -> nearbyChat(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.ON_DEVICE_ML, "Recognise text in an image, on the device", listOf(
+                ActionSpec(
+                    "recognize",
+                    "Read text out of an image, without anything leaving the phone",
+                    listOf(
+                        ParamDoc("path", "string", false, "Absolute path to an image file", "/sdcard/Pictures/shot.jpg"),
+                        ParamDoc("base64", "string", false, "The image inline, instead of a path")
+                    ),
+                    """{"capability":"ON_DEVICE_ML","action":"recognize","path":"/sdcard/Pictures/shot.jpg"}""",
+                    """{"text":"Invoice 4821","confidence":0.94,"labels":["invoice","receipt"]}""",
+                    handler = { p -> mlRecognize(p) }
+                )
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.MEDIA_STREAM_ENCODER, "Hardware video encoders", listOf(
+                ActionSpec("create", "Ask for a hardware video encoder and report what was negotiated", listOf(
+                    ParamDoc("width", "integer", false, "Width in pixels", "1280"),
+                    ParamDoc("height", "integer", false, "Height in pixels", "720"),
+                    ParamDoc("bitRate", "integer", false, "Target bit rate in bits per second", "2000000")
+                ), """{"capability":"MEDIA_STREAM_ENCODER","action":"create"}""",
+                    """{"available":true,"width":1280,"height":720,"bitRate":2000000,"released":true}""",
+                    handler = { p -> encoderCreate(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.OVERLAY_WINDOW, "Draw over other apps", listOf(
+                ActionSpec(
+                    "checkPermission",
+                    "Whether this app may draw over other apps, and how to grant it",
+                    emptyList(),
+                    """{"capability":"OVERLAY_WINDOW","action":"checkPermission"}""",
+                    """{"granted":false,"settingsAction":"android.settings.action.MANAGE_OVERLAY_PERMISSION"}""",
+                    handler = { p -> overlayCheck(p) }
+                )
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.ALL_FILES_ACCESS, "Access every file on the device", listOf(
+                ActionSpec(
+                    "checkPermission",
+                    "Whether this app may read and write all files, and how to grant it",
+                    emptyList(),
+                    """{"capability":"ALL_FILES_ACCESS","action":"checkPermission"}""",
+                    """{"granted":false,"settingsAction":"android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION"}""",
+                    handler = { p -> allFilesCheck(p) }
+                )
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.VPN, "A device-wide VPN tunnel", listOf(
+                ActionSpec("status", "Whether a tunnel is running, and whether one may be started", listOf(),
+                    """{"capability":"VPN","action":"status"}""",
+                    """{"active":false,"consentRequired":true,"settingsAction":"android.settings.VPN_SETTINGS"}""",
+                    handler = { p -> vpnStatus(p) })
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.BIOMETRIC, "Fingerprint and device-credential authentication", listOf(
+                ActionSpec(
+                    "status",
+                    "What this device can authenticate with, and whether a lock is set",
+                    emptyList(),
+                    """{"capability":"BIOMETRIC","action":"status"}""",
+                    """{"hardware":true,"biometricAvailable":true,"deviceSecure":true,"lockEnabled":false,"appLocked":false}""",
+                    handler = { p -> biometricStatus(p) }
+                )
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.INPUT_METHOD, "Typing into whatever is on screen", listOf(
+                ActionSpec(
+                    "status",
+                    "Whether Android Star is the active keyboard, which is what typing needs",
+                    emptyList(),
+                    """{"capability":"INPUT_METHOD","action":"status"}""",
+                    """{"isActiveKeyboard":false,"activeKeyboard":"com.google.android.inputmethod.latin/....LatinIME"}""",
+                    handler = { p -> imeStatus(p) }
+                )
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.SPEECH_RECOGNITION, "Speech to text, on the device", listOf(
+                ActionSpec("status", "Whether speech recognition is installed and usable here", listOf(),
+                    """{"capability":"SPEECH_RECOGNITION","action":"status"}""",
+                    """{"available":true,"recognizing":false,"lastTranscript":""}""",
+                    handler = { p -> speechStatus(p) })
             )
         ),
         CapabilitySpec(
@@ -1513,6 +1611,176 @@ class CapabilityActions(
         val text = p.string("text") ?: return badRequest("Missing 'text'")
         provider.shareText(text, p.string("title") ?: "Share via Android Star")
         return ServerResponse.json("""{"shared":true}""")
+    }
+
+    // =====================================================================
+    // Permission checks
+    //
+    // These cannot do the thing headlessly — a consent dialog needs an Activity, and an HTTP
+    // request has none. What they can do is answer whether the grant exists and name the screen
+    // that gives it. That is strictly better than the only alternative, which is trying the real
+    // action and reading a refusal with no cause.
+    // =====================================================================
+
+    private fun overlayCheck(p: JsonObject): ServerResponse {
+        val provider = provider<OverlayWindowCapabilityProvider>(CapabilityType.OVERLAY_WINDOW)
+            ?: return unsupported(CapabilityType.OVERLAY_WINDOW)
+        val canDraw = provider.canDrawOverlays
+        return ServerResponse.json(
+            buildJsonObject {
+                put("granted", canDraw)
+                put(
+                    "settingsAction",
+                    if (canDraw) "" else "android.settings.action.MANAGE_OVERLAY_PERMISSION"
+                )
+                put("showing", provider.isOverlayShowing.value)
+            }.toString()
+        )
+    }
+
+    private fun allFilesCheck(p: JsonObject): ServerResponse {
+        val provider = provider<AllFilesAccessCapabilityProvider>(CapabilityType.ALL_FILES_ACCESS)
+            ?: return unsupported(CapabilityType.ALL_FILES_ACCESS)
+        val granted = provider.isExternalStorageManager
+        return ServerResponse.json(
+            buildJsonObject {
+                put("granted", granted)
+                put(
+                    "settingsAction",
+                    if (granted) "" else "android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION"
+                )
+            }.toString()
+        )
+    }
+
+    private fun vpnStatus(p: JsonObject): ServerResponse {
+        val provider = provider<VpnCapabilityProvider>(CapabilityType.VPN)
+            ?: return unsupported(CapabilityType.VPN)
+        // prepare() returning null means consent is already held, so a tunnel may be started.
+        val consentHeld = provider.prepareVpnIntent() == null
+        return ServerResponse.json(
+            buildJsonObject {
+                put("active", provider.isVpnActive.value)
+                put("consentRequired", !consentHeld)
+                put("settingsAction", "android.settings.VPN_SETTINGS")
+            }.toString()
+        )
+    }
+
+    private fun biometricStatus(p: JsonObject): ServerResponse {
+        val provider = provider<BiometricAuthCapabilityProvider>(CapabilityType.BIOMETRIC)
+            ?: return unsupported(CapabilityType.BIOMETRIC)
+        return ServerResponse.json(
+            buildJsonObject {
+                put("hardware", provider.hasHardware)
+                put("biometricAvailable", provider.isBiometricAvailable)
+                put("deviceSecure", provider.isDeviceSecure)
+                put("lockEnabled", provider.isLockEnabled.value)
+                put("appLocked", provider.isAppLocked.value)
+                put("description", provider.statusDescription)
+            }.toString()
+        )
+    }
+
+    private fun imeStatus(p: JsonObject): ServerResponse {
+        val provider = provider<InputMethodCapabilityProvider>(CapabilityType.INPUT_METHOD)
+            ?: return unsupported(CapabilityType.INPUT_METHOD)
+        return ServerResponse.json(
+            buildJsonObject {
+                put("isActiveKeyboard", provider.isActiveKeyboard())
+                put("activeKeyboard", provider.activeKeyboard() ?: "")
+            }.toString()
+        )
+    }
+
+    private fun speechStatus(p: JsonObject): ServerResponse {
+        val provider = provider<SpeechRecognitionCapabilityProvider>(CapabilityType.SPEECH_RECOGNITION)
+            ?: return unsupported(CapabilityType.SPEECH_RECOGNITION)
+        return ServerResponse.json(
+            buildJsonObject {
+                put("available", provider.isRecognitionAvailable)
+                put("recognizing", provider.isRecognizing.value)
+                put("lastTranscript", provider.lastTranscript.value)
+            }.toString()
+        )
+    }
+
+    // =====================================================================
+    // Real capabilities
+    // =====================================================================
+
+    private fun mlRecognize(p: JsonObject): ServerResponse {
+        val provider = provider<OnDeviceMlCapabilityProvider>(CapabilityType.ON_DEVICE_ML)
+            ?: return unsupported(CapabilityType.ON_DEVICE_ML)
+
+        val bitmap = loadBitmap(p)
+            ?: return badRequest("Supply either 'path' to an image file, or 'base64' image data")
+
+        return try {
+            val result = provider.recognizeTextFromImage(bitmap)
+            ServerResponse.json(
+                buildJsonObject {
+                    put("text", result.detectedText)
+                    put("confidence", result.confidence)
+                    put("labels", buildJsonArray { result.labels.forEach { add(JsonPrimitive(it)) } })
+                }.toString()
+            )
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+    /** Reads the image the caller named, refusing anything that is not a readable image file. */
+    private fun loadBitmap(p: JsonObject): android.graphics.Bitmap? {
+        val encoded = p.string("base64")
+        if (!encoded.isNullOrBlank()) {
+            val bytes = runCatching {
+                android.util.Base64.decode(encoded.substringAfterLast(','), android.util.Base64.DEFAULT)
+            }.getOrNull() ?: return null
+            return android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        }
+
+        val path = p.string("path") ?: return null
+        val file = java.io.File(path)
+        if (!file.exists() || !file.canRead()) return null
+        return android.graphics.BitmapFactory.decodeFile(path)
+    }
+
+    private fun encoderCreate(p: JsonObject): ServerResponse {
+        val provider = provider<MediaStreamEncoderCapabilityProvider>(CapabilityType.MEDIA_STREAM_ENCODER)
+            ?: return unsupported(CapabilityType.MEDIA_STREAM_ENCODER)
+
+        val width = p.int("width") ?: 1280
+        val height = p.int("height") ?: 720
+        val bitRate = p.int("bitRate") ?: 2_000_000
+        if (width !in 16..4096 || height !in 16..4096) {
+            return badRequest("'width' and 'height' must be 16-4096")
+        }
+
+        val codec = provider.createVideoEncoder(width, height, bitRate)
+            // Released immediately: the caller asked what the device can do, not for a codec to
+            // hold open. Handing one out and forgetting it would leak a hardware encoder.
+            ?: return ServerResponse.json(
+                """{"available":false,"hint":"No hardware video encoder could be created at ${width}x$height"}"""
+            )
+
+        return try {
+            ServerResponse.json(
+                buildJsonObject {
+                    put("available", true)
+                    put("width", width)
+                    put("height", height)
+                    put("bitRate", bitRate)
+                    // Android's MediaCodec exposes no way to read back what was negotiated, so
+                    // the answer is "an encoder was created for these parameters" and nothing more.
+                    // Guessing the codec name would be worse than not claiming one.
+                    put("released", true)
+                }.toString()
+            )
+        } finally {
+            runCatching { codec.stop() }
+            runCatching { codec.release() }
+        }
     }
 
     private fun clipboardRead(): ServerResponse {

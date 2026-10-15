@@ -407,7 +407,7 @@ class PlatformContainer(val context: Context) {
         capabilityRegistry.register(OnDeviceMlCapabilityProvider(context, logger))
         capabilityRegistry.register(RestrictedShellCapabilityProvider(logger))
         capabilityRegistry.register(AllFilesAccessCapabilityProvider(context, logger))
-        capabilityRegistry.register(InputMethodCapabilityProvider(logger))
+        capabilityRegistry.register(InputMethodCapabilityProvider(context, logger))
         capabilityRegistry.register(ClipboardBackgroundCapabilityProvider(context, logger))
 
         // Also register low-level legacy hardware providers
