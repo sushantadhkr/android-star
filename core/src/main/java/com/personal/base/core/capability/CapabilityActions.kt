@@ -42,6 +42,7 @@ import com.personal.base.platform.capabilities.DeviceActionCapabilityProvider
 import com.personal.base.platform.capabilities.DeviceAdminCapabilityProvider
 import com.personal.base.platform.capabilities.DeviceInfoCapabilityProvider
 import com.personal.base.platform.capabilities.DisplayCapabilityProvider
+import com.personal.base.platform.capabilities.DocumentsProviderCapabilityProvider
 import com.personal.base.platform.capabilities.InputMethodCapabilityProvider
 import com.personal.base.platform.capabilities.KeyguardCapabilityProvider
 import com.personal.base.platform.capabilities.DoNotDisturbCapabilityProvider
@@ -51,6 +52,7 @@ import com.personal.base.platform.capabilities.MediaLibraryCapabilityProvider
 import com.personal.base.platform.capabilities.NetworkUsageCapabilityProvider
 import com.personal.base.platform.capabilities.NotificationCapabilityProvider
 import com.personal.base.platform.capabilities.NfcCapabilityProvider
+import com.personal.base.platform.capabilities.NotificationListenerCapabilityProvider
 import com.personal.base.platform.capabilities.OnDeviceMlCapabilityProvider
 import com.personal.base.platform.capabilities.QrBarcodeCapabilityProvider
 import com.personal.base.platform.capabilities.PhoneCapabilityProvider
@@ -773,6 +775,62 @@ class CapabilityActions(
                     """{"capability":"REMOTE_INPUT","action":"swipe","fromX":540,"fromY":1200,"toX":540,"toY":300}""",
                     """{"submitted":true,"completed":true}""",
                     handler = { p -> remoteInputSwipe(p) }
+                )
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.NOTIFICATION_LISTENER, "Read notifications other apps post", listOf(
+                ActionSpec(
+                    "status",
+                    "Whether the user has granted notification access. Nothing here works without it",
+                    emptyList(),
+                    """{"capability":"NOTIFICATION_LISTENER","action":"status"}""",
+                    """{"granted":true,"connected":true}""",
+                    handler = { p -> notificationStatus(p) }
+                ),
+                ActionSpec(
+                    "list",
+                    "The notifications on screen right now, read live from the system",
+                    listOf(ParamDoc("limit", "integer", false, "How many to return, newest first", "50")),
+                    """{"capability":"NOTIFICATION_LISTENER","action":"list","limit":20}""",
+                    """{"count":2,"notifications":[{"package":"com.example","title":"Hi","text":"There"}]}""",
+                    handler = { p -> notificationList(p) }
+                ),
+                ActionSpec(
+                    "dismiss",
+                    "Clear one notification from the shade",
+                    listOf(ParamDoc("key", "string", true, "The key from 'list'", "0|com.example|1|null|42")),
+                    """{"capability":"NOTIFICATION_LISTENER","action":"dismiss","key":"0|com.example|1|null|42"}""",
+                    """{"dismissed":true}""",
+                    handler = { p -> notificationDismiss(p) }
+                )
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.DOCUMENTS_PROVIDER, "The download folder, in any app's file picker", listOf(
+                ActionSpec(
+                    "status",
+                    "Where this points and what it currently holds",
+                    emptyList(),
+                    """{"capability":"DOCUMENTS_PROVIDER","action":"status"}""",
+                    """{"authority":"com.personal.base.documents","fileCount":3,"writable":false}""",
+                    handler = { p -> documentsStatus(p) }
+                ),
+                ActionSpec(
+                    "list",
+                    "The same files the picker shows, with the same document ids",
+                    listOf(ParamDoc("limit", "integer", false, "How many to return, newest first", "50")),
+                    """{"capability":"DOCUMENTS_PROVIDER","action":"list"}""",
+                    """{"count":1,"documents":[{"documentId":"a.jpg","name":"a.jpg","sizeBytes":2048}]}""",
+                    handler = { p -> documentsList(p) }
+                ),
+                ActionSpec(
+                    "delete",
+                    "Delete one file by the id 'list' gave you",
+                    listOf(ParamDoc("documentId", "string", true, "A document id, exactly as 'list' returned it", "a.jpg")),
+                    """{"capability":"DOCUMENTS_PROVIDER","action":"delete","documentId":"a.jpg"}""",
+                    """{"deleted":true,"documentId":"a.jpg"}""",
+                    handler = { p -> documentsDelete(p) }
                 )
             )
         ),
@@ -2206,6 +2264,147 @@ class CapabilityActions(
                 if (outcome.error != null) put("note", outcome.error)
             }.toString()
         )
+    }
+
+    private fun notificationStatus(p: JsonObject): ServerResponse {
+        val provider = provider<NotificationListenerCapabilityProvider>(CapabilityType.NOTIFICATION_LISTENER)
+            ?: return unsupported(CapabilityType.NOTIFICATION_LISTENER)
+        return ServerResponse.json(
+            buildJsonObject {
+                put("granted", provider.isGranted)
+                put("connected", provider.isConnected)
+                put("grantAction", provider.grantAction)
+            }.toString()
+        )
+    }
+
+    /**
+     * The notifications on screen.
+     *
+     * "Not granted" is 403 and "granted but nothing is posted" is 200 with an empty list. Collapsing
+     * those would make a missing permission look like a quiet phone, which is the kind of wrong
+     * answer that gets trusted.
+     */
+    private fun notificationList(p: JsonObject): ServerResponse {
+        val provider = provider<NotificationListenerCapabilityProvider>(CapabilityType.NOTIFICATION_LISTENER)
+            ?: return unsupported(CapabilityType.NOTIFICATION_LISTENER)
+        if (!provider.isGranted) {
+            return ServerResponse(
+                403, "application/json",
+                """{"error":"Notification access has not been granted","grantAction":"${provider.grantAction}"}"""
+            )
+        }
+        val limit = (p.int("limit") ?: 50).coerceIn(1, 200)
+        val active = provider.activeNotifications()
+            ?: return ServerResponse(
+                503, "application/json",
+                """{"error":"Granted, but the listener service has not connected yet"}"""
+            )
+        val shown = active.take(limit)
+        return ServerResponse.json(
+            buildJsonObject {
+                put("count", shown.size)
+                put("totalOnDevice", active.size)
+                put("notifications", buildJsonArray {
+                    shown.forEach { n ->
+                        add(
+                            buildJsonObject {
+                                put("key", n.key)
+                                put("package", n.packageName)
+                                put("title", n.title)
+                                put("text", n.text)
+                                put("postTime", n.postTime)
+                                put("isOngoing", n.isOngoing)
+                            }
+                        )
+                    }
+                })
+            }.toString()
+        )
+    }
+
+    private fun notificationDismiss(p: JsonObject): ServerResponse {
+        val provider = provider<NotificationListenerCapabilityProvider>(CapabilityType.NOTIFICATION_LISTENER)
+            ?: return unsupported(CapabilityType.NOTIFICATION_LISTENER)
+        if (!provider.isGranted) {
+            return ServerResponse(
+                403, "application/json",
+                """{"error":"Notification access has not been granted","grantAction":"${provider.grantAction}"}"""
+            )
+        }
+        val key = p.string("key") ?: return badRequest("Missing 'key'")
+        return if (provider.dismiss(key)) {
+            ServerResponse.json("""{"dismissed":true,"key":"$key"}""")
+        } else {
+            // Not present, so nothing was dismissed. Saying so beats a success for nothing.
+            ServerResponse(
+                404, "application/json",
+                """{"error":"No notification with that key is on screen","dismissed":false}"""
+            )
+        }
+    }
+
+    private fun documentsStatus(p: JsonObject): ServerResponse {
+        val provider = provider<DocumentsProviderCapabilityProvider>(CapabilityType.DOCUMENTS_PROVIDER)
+            ?: return unsupported(CapabilityType.DOCUMENTS_PROVIDER)
+        val status = provider.status()
+        return ServerResponse.json(
+            buildJsonObject {
+                put("authority", status.authority)
+                put("folderPath", status.folderPath)
+                put("folderExists", status.folderExists)
+                put("fileCount", status.fileCount)
+                put("totalBytes", status.totalBytes)
+                put("rootId", status.androidStarRootId)
+                // Read and delete only, stated so a caller does not plan around a picker that
+                // cannot accept writes.
+                put("writable", status.writable)
+                put("pickerUri", "content://${status.authority}/root/${status.androidStarRootId}")
+            }.toString()
+        )
+    }
+
+    private fun documentsList(p: JsonObject): ServerResponse {
+        val provider = provider<DocumentsProviderCapabilityProvider>(CapabilityType.DOCUMENTS_PROVIDER)
+            ?: return unsupported(CapabilityType.DOCUMENTS_PROVIDER)
+        val limit = (p.int("limit") ?: 50).coerceIn(1, 200)
+        val docs = provider.list(limit)
+        return ServerResponse.json(
+            buildJsonObject {
+                put("count", docs.size)
+                put("documents", buildJsonArray {
+                    docs.forEach { d ->
+                        add(
+                            buildJsonObject {
+                                put("documentId", d.documentId)
+                                put("name", d.name)
+                                put("sizeBytes", d.sizeBytes)
+                                put("lastModified", d.lastModified)
+                            }
+                        )
+                    }
+                })
+            }.toString()
+        )
+    }
+
+    private fun documentsDelete(p: JsonObject): ServerResponse {
+        val provider = provider<DocumentsProviderCapabilityProvider>(CapabilityType.DOCUMENTS_PROVIDER)
+            ?: return unsupported(CapabilityType.DOCUMENTS_PROVIDER)
+        val id = p.string("documentId") ?: return badRequest("Missing 'documentId'")
+        // Traversal is refused before anything is touched, and says so, rather than resolving to
+        // some file that happens to exist.
+        if (id.contains('/') || id.contains("..") || id.isBlank()) {
+            return badRequest("'documentId' must be a plain file name, exactly as 'list' returned it")
+        }
+        return if (provider.delete(id)) {
+            ServerResponse.json("""{"deleted":true,"documentId":"$id"}""")
+        } else {
+            ServerResponse(
+                404, "application/json",
+                """{"error":"No such document","deleted":false}"""
+            )
+        }
     }
 
     private fun clipboardRead(): ServerResponse {

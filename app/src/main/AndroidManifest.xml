@@ -175,6 +175,36 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
+        <!--
+          Notification access. Declared once by the shell. Inert until the user grants access in
+          Settings, which no dialog can ask for.
+        -->
+        <service
+            android:name="com.personal.base.platform.capabilities.PlatformNotificationListenerService"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!--
+          The download folder, in every other app's file picker. Exported on purpose: that is how
+          the system reaches a DocumentsProvider. Guarded by MANAGE_DOCUMENTS, which only the
+          system holds, and every document id is resolved back inside the folder.
+        -->
+        <provider
+            android:name="com.personal.base.platform.capabilities.PlatformDocumentsProvider"
+            android:authorities="${applicationId}.documents"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter>
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+            </intent-filter>
+        </provider>
+
         <!-- FileProvider for Safe External Content URI Sharing -->
         <provider
             android:name="androidx.core.content.FileProvider"

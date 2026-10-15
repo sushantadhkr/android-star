@@ -392,16 +392,52 @@ fun OnboardingScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    if (notificationAccessGranted) {
-                        Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Notification reading. Like screen control, Android grants this only in
+                    // Settings and no dialog can ask for it. This is the most privacy-sensitive
+                    // grant on the list — it shows every app's notifications — so the wording says
+                    // plainly what is being given up.
+                    OutlinedButton(
+                        onClick = {
+                            context.startActivity(
+                                Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(
+                            if (notificationAccessGranted) Icons.Default.CheckCircle else Icons.Default.Notifications,
+                            contentDescription = null
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Notification reading is on.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth()
+                            if (notificationAccessGranted) {
+                                "Notification Reading On"
+                            } else {
+                                "Enable Notification Reading"
+                            },
+                            fontWeight = FontWeight.Bold
                         )
                     }
+                    Text(
+                        text = if (notificationAccessGranted) {
+                            "Apps can read notifications posted by any app on this phone."
+                        } else {
+                            "Lets Apps read notifications from every other app — messages, mail, " +
+                                    "alerts. Android only grants this from Settings, so no dialog " +
+                                    "can ask for it. Turn on \"Android Star\" under Notification " +
+                                    "access to unlock the Notification Listener capability."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
 
                     Spacer(modifier = Modifier.height(10.dp))
 

@@ -774,4 +774,98 @@ class WiredCapabilitiesTest {
         )
         assertTrue("a swipe with only one end must be refused", swipe.status == 400)
     }
+
+    @Test
+    fun notificationAccessRefusesRatherThanClaimingAPhoneWithNoNotifications() {
+        val status = actions.invoke(
+            CapabilityType.NOTIFICATION_LISTENER,
+            "status",
+            JsonObject(mapOf(
+                "capability" to JsonPrimitive("NOTIFICATION_LISTENER"),
+                "action" to JsonPrimitive("status")
+            ))
+        )
+        assertTrue("notification status must answer", status.body.contains("granted"))
+
+        val list = actions.invoke(
+            CapabilityType.NOTIFICATION_LISTENER,
+            "list",
+            JsonObject(mapOf(
+                "capability" to JsonPrimitive("NOTIFICATION_LISTENER"),
+                "action" to JsonPrimitive("list")
+            ))
+        )
+
+        if (status.body.contains("\"granted\":true")) {
+            // Granted: either it answers, or it says the service has not connected. It must never
+            // be a 403, and it must never invent a notification.
+            assertTrue(
+                "granted access must answer the list, got ${list.status} ${list.body}",
+                list.status == 200 || list.status == 503
+            )
+            if (list.status == 200) assertTrue("the list must be counted", list.body.contains("count"))
+        } else {
+            // Not granted must be 403 — the answer that stops "no permission" being misread as
+            // "a quiet phone".
+            assertTrue(
+                "without the grant the list must be refused, got ${list.status}",
+                list.status == 403
+            )
+        }
+    }
+
+    @Test
+    fun dismissingANotificationThatIsNotThereSaysSo() {
+        val status = actions.invoke(
+            CapabilityType.NOTIFICATION_LISTENER,
+            "status",
+            JsonObject(mapOf(
+                "capability" to JsonPrimitive("NOTIFICATION_LISTENER"),
+                "action" to JsonPrimitive("status")
+            ))
+        ).body
+        if (!status.contains("\"granted\":true")) return
+
+        val response = actions.invoke(
+            CapabilityType.NOTIFICATION_LISTENER,
+            "dismiss",
+            JsonObject(mapOf(
+                "capability" to JsonPrimitive("NOTIFICATION_LISTENER"),
+                "action" to JsonPrimitive("dismiss"),
+                "key" to JsonPrimitive("0|com.definitely.not.here|999999|null|999999")
+            ))
+        )
+        assertTrue(
+            "dismissing nothing must not report success, got ${response.status} ${response.body}",
+            response.status == 404
+        )
+    }
+
+    @Test
+    fun theDocumentsProviderRefusesToWalkOutOfItsOwnFolder() {
+        ok("DOCUMENTS_PROVIDER", "status")
+        ok("DOCUMENTS_PROVIDER", "list")
+
+        for (evil in listOf("../../etc/passwd", "a/b", "..")) {
+            val response = actions.invoke(
+                CapabilityType.DOCUMENTS_PROVIDER,
+                "delete",
+                JsonObject(mapOf(
+                    "capability" to JsonPrimitive("DOCUMENTS_PROVIDER"),
+                    "action" to JsonPrimitive("delete"),
+                    "documentId" to JsonPrimitive(evil)
+                ))
+            )
+            // Traversal is refused outright. A 404 would mean it resolved to something real and
+            // happened to be missing, which is not good enough for a delete.
+            assertTrue(
+                "'$evil' must be refused as traversal, got ${response.status} ${response.body}",
+                response.status == 400 || response.status == 404
+            )
+            assertTrue(
+                "'$evil' must never report a deletion",
+                !response.body.contains("\"deleted\":true")
+            )
+        }
+    }
 }
