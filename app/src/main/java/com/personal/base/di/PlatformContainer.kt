@@ -460,8 +460,16 @@ class PlatformContainer(val context: Context) {
             notifier?.onChanged = { publishCapabilityWidgets() }
         }
 
-        // Initialize background tasks
-        backgroundManager.initialize()
+        // Initialize background tasks.
+        // Wrapped because an exception here runs during Application.onCreate, and an exception
+        // there kills the process outright — taking the host and the API server with it. Anything
+        // that fails to start is something the app can retry later, not a reason to die.
+        runCatching { backgroundManager.initialize() }.onFailure { error ->
+            logger.e(
+                "PlatformContainer",
+                "Background host did not start: ${error.message}"
+            )
+        }
 
         // A WorkManager worker is built by the framework and cannot be handed a provider, so the
         // background work table is published for it to look tasks up in. Without this, anything an
@@ -485,6 +493,21 @@ class PlatformContainer(val context: Context) {
      * A capability with nothing a home screen should show declares nothing, so this walks all of
      * them and most simply contribute nothing.
      */
+    /**
+     * Starts the host if it is not already up, when called from the foreground.
+     *
+     * A no-op when the host is already running, so calling this on every Activity open costs one
+     * status read rather than restarting a service that is doing its job.
+     */
+    fun retryHostIfNotRunning() {
+        if (configRepository.config.value.isForegroundServiceEnabled &&
+            !backgroundManager.status.value.isForegroundServiceRunning
+        ) {
+            logger.i("PlatformContainer", "Host was not running; starting it now that the app is open")
+            backgroundManager.startForegroundService()
+        }
+    }
+
     /**
      * The work this platform will accept over the API.
      *

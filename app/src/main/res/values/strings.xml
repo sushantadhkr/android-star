@@ -6,4 +6,5 @@
     <string name="shortcut_sync_long">Trigger Platform Background Sync</string>
     <string name="widget_description">An Android Star App on your home screen</string>
     <string name="widget_empty">No app is switched on</string>
+    <string name="accessibility_service_description">Lets Android Star tap and swipe on this screen at your request. It cannot read what is on screen.</string>
 </resources>

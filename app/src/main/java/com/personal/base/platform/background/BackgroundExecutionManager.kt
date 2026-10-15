@@ -108,9 +108,21 @@ class BackgroundExecutionManager(
     }
 
     fun startForegroundService() {
-        PlatformForegroundService.start(context)
-        logger.i("BackgroundManager", "Requested foreground service start")
-        _status.value = _status.value.copy(isForegroundServiceRunning = true)
+        // The status follows the actual outcome. Reporting the host as running after a request
+        // Android had already refused would make a dead API server look alive, which is the one
+        // failure a caller cannot detect on their own.
+        val started = PlatformForegroundService.start(context)
+        if (started) {
+            logger.i("BackgroundManager", "Foreground service start requested and accepted")
+            _status.value = _status.value.copy(isForegroundServiceRunning = true)
+        } else {
+            logger.w(
+                "BackgroundManager",
+                "Foreground service start refused: the app is in the background. " +
+                    "The host will start when the app is next opened."
+            )
+            _status.value = _status.value.copy(isForegroundServiceRunning = false)
+        }
     }
 
     fun stopForegroundService() {

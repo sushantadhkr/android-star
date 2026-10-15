@@ -5,6 +5,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.personal.base.core.capability.CapabilityActions
 import com.personal.base.core.capability.CapabilityType
+import com.personal.base.platform.capabilities.PlatformAccessibilityService
 import com.personal.base.core.capability.PlatformCapabilityRegistry
 import com.personal.base.core.logging.PlatformLogger
 import com.personal.base.di.PlatformContainer
@@ -47,6 +48,15 @@ class WiredCapabilitiesTest {
     }
 
     /** Stops a capability without caring whether it was already stopped. */
+    /** Waits, briefly, for the accessibility service to bind to this process. */
+    private fun waitForAccessibilityService(): Boolean {
+        repeat(16) {
+            if (PlatformAccessibilityService.activeInstance != null) return true
+            SystemClock.sleep(500)
+        }
+        return PlatformAccessibilityService.activeInstance != null
+    }
+
     private fun stop(capability: String, action: String) {
         runCatching {
             actions.invoke(
@@ -648,5 +658,120 @@ class WiredCapabilitiesTest {
             SystemClock.sleep(500)
         }
         assertTrue("the scheduled work must have run and reported its result", sawFinished)
+    }
+
+    @Test
+    fun accessibilityAndRemoteInputAnswerTheirStatusHonestly() {
+        val a11y = actions.invoke(
+            CapabilityType.ACCESSIBILITY,
+            "status",
+            JsonObject(mapOf(
+                "capability" to JsonPrimitive("ACCESSIBILITY"),
+                "action" to JsonPrimitive("status")
+            ))
+        ).body
+        assertTrue("accessibility status must answer enabled or not", a11y.contains("enabled"))
+        // Disabled must be stated as the user's choice, not as a platform fault, and must point
+        // at the one screen that can change it.
+        if (!a11y.contains("\"enabled\":true")) {
+            assertTrue(
+                "when disabled the answer must name the Settings screen that grants it",
+                a11y.contains("ACCESSIBILITY_SETTINGS") && a11y.contains("user")
+            )
+        }
+
+        val remote = actions.invoke(
+            CapabilityType.REMOTE_INPUT,
+            "status",
+            JsonObject(mapOf(
+                "capability" to JsonPrimitive("REMOTE_INPUT"),
+                "action" to JsonPrimitive("status")
+            ))
+        ).body
+        assertTrue("remote input status must answer", remote.contains("available"))
+    }
+
+    @Test
+    fun aGestureThatCannotRunIsRefusedRatherThanClaimedAsSent() {
+        // The harness starts a fresh app process, and Android binds the accessibility service to
+        // it asynchronously — so a tap issued immediately would always be refused for the wrong
+        // reason. Waiting for the real connection is what makes the positive path reachable at all.
+        val connected = waitForAccessibilityService()
+        if (connected) {
+            val live = actions.invoke(
+                CapabilityType.REMOTE_INPUT,
+                "tap",
+                JsonObject(mapOf(
+                    "capability" to JsonPrimitive("REMOTE_INPUT"),
+                    "action" to JsonPrimitive("tap"),
+                    "x" to JsonPrimitive(540.0),
+                    "y" to JsonPrimitive(1200.0)
+                ))
+            )
+            assertTrue(
+                "a connected service must accept a gesture, got ${live.status} ${live.body}",
+                live.status == 200 && live.body.contains("\"submitted\":true")
+            )
+            // Sent is not done. The completed field is what makes this honest, so its presence is
+            // part of the contract even when the value is still null a millisecond later.
+            assertTrue(
+                "an accepted gesture must still report whether it ran",
+                live.body.contains("completed")
+            )
+        }
+
+        // Whether the service is enabled depends on the device, so both outcomes are acceptable
+        // and only the dishonest one is a failure: reporting "submitted" when nothing was sent.
+        val response = actions.invoke(
+            CapabilityType.REMOTE_INPUT,
+            "tap",
+            JsonObject(mapOf(
+                "capability" to JsonPrimitive("REMOTE_INPUT"),
+                "action" to JsonPrimitive("tap"),
+                "x" to JsonPrimitive(540.0),
+                "y" to JsonPrimitive(1200.0)
+            ))
+        )
+
+        if (response.status == 200) {
+            val body = response.body
+            assertTrue("a sent gesture must say it was submitted", body.contains("\"submitted\":true"))
+            // "submitted" is not "performed". Android cancels gestures when another app is
+            // animating, so the completed field is what stops this being a lie.
+            assertTrue(
+                "a gesture must report whether it actually ran, not merely that it was sent",
+                body.contains("completed")
+            )
+        } else {
+            assertTrue(
+                "a refusal must be 409 and must say the gesture was not sent, got ${response.status}",
+                response.status == 409 && response.body.contains("\"submitted\":false")
+            )
+        }
+    }
+
+    @Test
+    fun coordinatesAreRequiredBeforeAnyGestureIsAttempted() {
+        for (action in listOf("tap")) {
+            val response = actions.invoke(
+                CapabilityType.REMOTE_INPUT,
+                action,
+                JsonObject(mapOf(
+                    "capability" to JsonPrimitive("REMOTE_INPUT"),
+                    "action" to JsonPrimitive(action)
+                ))
+            )
+            assertTrue("$action with no coordinates must be refused, got ${response.status}", response.status == 400)
+        }
+        val swipe = actions.invoke(
+            CapabilityType.REMOTE_INPUT,
+            "swipe",
+            JsonObject(mapOf(
+                "capability" to JsonPrimitive("REMOTE_INPUT"),
+                "action" to JsonPrimitive("swipe"),
+                "fromX" to JsonPrimitive(1.0)
+            ))
+        )
+        assertTrue("a swipe with only one end must be refused", swipe.status == 400)
     }
 }

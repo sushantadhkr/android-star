@@ -43,7 +43,19 @@ class PlatformForegroundService : Service() {
         const val ACTION_STOP = "com.personal.base.action.STOP_SERVICE"
         const val NOTIFICATION_ID = 8801
 
-        fun start(context: Context) {
+        /**
+         * Asks Android to start the host. Returns whether the request was accepted.
+         *
+         * Android refuses to start a foreground service from the background, and on Android 12+ it
+         * throws when it does. That is not an edge case here: the app is started in the background
+         * whenever the system binds the accessibility service, a WorkManager job fires, or a boot
+         * receiver runs. Letting that exception escape `Application.onCreate` killed the whole
+         * process — no host, no API server — so it is caught and reported as a plain "no".
+         *
+         * The host is then started the next time the app is genuinely in the foreground, which is
+         * the only moment Android permits.
+         */
+        fun start(context: Context): Boolean = try {
             val intent = Intent(context, PlatformForegroundService::class.java).apply {
                 action = ACTION_START
             }
@@ -52,6 +64,14 @@ class PlatformForegroundService : Service() {
             } else {
                 context.startService(intent)
             }
+            true
+        } catch (e: Exception) {
+            // ForegroundServiceStartNotAllowedException on Android 12+, and SecurityException if a
+            // permission was revoked while the app was away. Both mean "not now", never "broken".
+            (context.applicationContext as? PersonalBaseApplication)
+                ?.container?.logger
+                ?.w("ForegroundService", "Start refused for now: ${e::class.java.simpleName}: ${e.message}")
+            false
         }
 
         fun stop(context: Context) {

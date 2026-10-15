@@ -93,8 +93,6 @@ class ApiDocumentationTest {
         listOf(
             // The service class exists for each of these but is not registered by the shell, so
             // nothing can reach it. Advertising an action would be a 409 forever.
-            "ACCESSIBILITY",
-            "REMOTE_INPUT",
             "NOTIFICATION_LISTENER",
             "DOCUMENTS_PROVIDER",
             // A provider that only sets a flag and logs "daemon initialized" opens no socket.

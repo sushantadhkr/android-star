@@ -158,6 +158,23 @@
             </intent-filter>
         </service>
 
+        <!--
+          Accessibility service. Declared by the shell, not per-App, and inert until the user
+          enables it in Settings. Without the config XML it is refused as malformed.
+        -->
+        <service
+            android:name="com.personal.base.platform.capabilities.PlatformAccessibilityService"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
         <!-- FileProvider for Safe External Content URI Sharing -->
         <provider
             android:name="androidx.core.content.FileProvider"

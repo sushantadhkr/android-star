@@ -22,6 +22,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        // Opening the app is the one moment Android always permits a foreground service to start.
+        // Anything that launched the app in the background — a bound accessibility service, a
+        // WorkManager job — was refused at the time, so the host starts here instead of never.
+        container.retryHostIfNotRunning()
+
         handleIncomingIntent(intent)
 
         setContent {

@@ -8,6 +8,7 @@ import com.personal.base.core.platform.NotificationInput
 import com.personal.base.core.platform.ServerResponse
 import com.personal.base.core.plugin.PlatformLocation
 import com.personal.base.platform.capabilities.AudioStreamCapabilityProvider
+import com.personal.base.platform.capabilities.AccessibilityCapabilityProvider
 import com.personal.base.platform.capabilities.AllFilesAccessCapabilityProvider
 import com.personal.base.platform.capabilities.BackgroundWorkCapabilityProvider
 import com.personal.base.platform.capabilities.BiometricAuthCapabilityProvider
@@ -53,6 +54,8 @@ import com.personal.base.platform.capabilities.NfcCapabilityProvider
 import com.personal.base.platform.capabilities.OnDeviceMlCapabilityProvider
 import com.personal.base.platform.capabilities.QrBarcodeCapabilityProvider
 import com.personal.base.platform.capabilities.PhoneCapabilityProvider
+import com.personal.base.platform.capabilities.TapOutcome
+import com.personal.base.platform.capabilities.RemoteInputCapabilityProvider
 import com.personal.base.platform.capabilities.RestrictedShellCapabilityProvider
 import com.personal.base.platform.capabilities.ScreenCaptureCapabilityProvider
 import com.personal.base.platform.capabilities.SharingCapabilityProvider
@@ -709,6 +712,67 @@ class CapabilityActions(
                     """{"capability":"BACKGROUND_WORK","action":"cancel","task":"storage.scan"}""",
                     """{"cancelled":true}""",
                     handler = { p -> workCancel(p) }
+                )
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.ACCESSIBILITY, "Drive the screen, once the user has allowed it", listOf(
+                ActionSpec(
+                    "status",
+                    "Whether the user has enabled this app in Settings. Nothing here works without it",
+                    emptyList(),
+                    """{"capability":"ACCESSIBILITY","action":"status"}""",
+                    """{"enabled":true,"grantAction":"android.settings.ACCESSIBILITY_SETTINGS"}""",
+                    handler = { p -> accessibilityStatus(p) }
+                ),
+                ActionSpec(
+                    "tap",
+                    "Tap at a point. Reports whether the tap was sent AND whether it actually ran",
+                    listOf(
+                        ParamDoc("x", "number", true, "Horizontal position in screen pixels", "540"),
+                        ParamDoc("y", "number", true, "Vertical position in screen pixels", "1200"),
+                        ParamDoc("durationMs", "integer", false, "How long to hold, in milliseconds", "50")
+                    ),
+                    """{"capability":"ACCESSIBILITY","action":"tap","x":540,"y":1200}""",
+                    """{"submitted":true,"completed":true}""",
+                    handler = { p -> accessibilityTap(p) }
+                )
+            )
+        ),
+        CapabilitySpec(
+            CapabilityType.REMOTE_INPUT, "Send taps and swipes to the screen", listOf(
+                ActionSpec(
+                    "status",
+                    "Whether input can be sent at all right now",
+                    emptyList(),
+                    """{"capability":"REMOTE_INPUT","action":"status"}""",
+                    """{"available":true,"grantAction":"android.settings.ACCESSIBILITY_SETTINGS"}""",
+                    handler = { p -> remoteInputStatus(p) }
+                ),
+                ActionSpec(
+                    "tap",
+                    "Tap at a point",
+                    listOf(
+                        ParamDoc("x", "number", true, "Horizontal position in screen pixels", "540"),
+                        ParamDoc("y", "number", true, "Vertical position in screen pixels", "1200")
+                    ),
+                    """{"capability":"REMOTE_INPUT","action":"tap","x":540,"y":1200}""",
+                    """{"submitted":true,"completed":true}""",
+                    handler = { p -> remoteInputTap(p) }
+                ),
+                ActionSpec(
+                    "swipe",
+                    "Drag from one point to another",
+                    listOf(
+                        ParamDoc("fromX", "number", true, "Start x", "540"),
+                        ParamDoc("fromY", "number", true, "Start y", "1200"),
+                        ParamDoc("toX", "number", true, "End x", "540"),
+                        ParamDoc("toY", "number", true, "End y", "300"),
+                        ParamDoc("durationMs", "integer", false, "How long the drag takes", "300")
+                    ),
+                    """{"capability":"REMOTE_INPUT","action":"swipe","fromX":540,"fromY":1200,"toX":540,"toY":300}""",
+                    """{"submitted":true,"completed":true}""",
+                    handler = { p -> remoteInputSwipe(p) }
                 )
             )
         ),
@@ -2049,6 +2113,99 @@ class CapabilityActions(
                 """{"error":"Nothing is queued under '$name'","cancelled":false}"""
             )
         }
+    }
+
+    private fun accessibilityStatus(p: JsonObject): ServerResponse {
+        val provider = provider<AccessibilityCapabilityProvider>(CapabilityType.ACCESSIBILITY)
+            ?: return unsupported(CapabilityType.ACCESSIBILITY)
+        return ServerResponse.json(
+            buildJsonObject {
+                put("enabled", provider.isEnabledInSettings)
+                put("grantAction", provider.grantAction)
+                // Stated plainly so nobody reads "enabled: false" as a platform fault: Android
+                // requires a human to grant this one, and there is no API path that can do it.
+                put("reason", if (provider.isEnabledInSettings) "" else "Not enabled by the user in Settings")
+            }.toString()
+        )
+    }
+
+    private fun accessibilityTap(p: JsonObject): ServerResponse {
+        val provider = provider<AccessibilityCapabilityProvider>(CapabilityType.ACCESSIBILITY)
+            ?: return unsupported(CapabilityType.ACCESSIBILITY)
+        val x = p.double("x") ?: return badRequest("Missing 'x'")
+        val y = p.double("y") ?: return badRequest("Missing 'y'")
+        val duration = p.int("durationMs") ?: 50
+        if (duration !in 1..5_000) return badRequest("'durationMs' must be 1-5000")
+
+        return tapResponse(provider.injectTap(x.toFloat(), y.toFloat(), duration.toLong()))
+    }
+
+    private fun remoteInputStatus(p: JsonObject): ServerResponse {
+        val provider = provider<RemoteInputCapabilityProvider>(CapabilityType.REMOTE_INPUT)
+            ?: return unsupported(CapabilityType.REMOTE_INPUT)
+        return ServerResponse.json(
+            buildJsonObject {
+                put("available", provider.isAvailable)
+                put("grantAction", provider.grantAction)
+                put(
+                    "note",
+                    "Typing is not here. It is INPUT_METHOD.typeText, which writes only to what " +
+                        "the user is already typing into."
+                )
+            }.toString()
+        )
+    }
+
+    private fun remoteInputTap(p: JsonObject): ServerResponse {
+        val provider = provider<RemoteInputCapabilityProvider>(CapabilityType.REMOTE_INPUT)
+            ?: return unsupported(CapabilityType.REMOTE_INPUT)
+        val x = p.double("x") ?: return badRequest("Missing 'x'")
+        val y = p.double("y") ?: return badRequest("Missing 'y'")
+        val duration = p.int("durationMs") ?: 50
+        if (duration !in 1..5_000) return badRequest("'durationMs' must be 1-5000")
+        return tapResponse(provider.tap(x.toFloat(), y.toFloat(), duration.toLong()))
+    }
+
+    private fun remoteInputSwipe(p: JsonObject): ServerResponse {
+        val provider = provider<RemoteInputCapabilityProvider>(CapabilityType.REMOTE_INPUT)
+            ?: return unsupported(CapabilityType.REMOTE_INPUT)
+        val fromX = p.double("fromX") ?: return badRequest("Missing 'fromX'")
+        val fromY = p.double("fromY") ?: return badRequest("Missing 'fromY'")
+        val toX = p.double("toX") ?: return badRequest("Missing 'toX'")
+        val toY = p.double("toY") ?: return badRequest("Missing 'toY'")
+        val duration = p.long("durationMs") ?: 300L
+        if (duration !in 1..10_000) return badRequest("'durationMs' must be 1-10000")
+
+        return tapResponse(
+            provider.swipe(fromX.toFloat(), fromY.toFloat(), toX.toFloat(), toY.toFloat(), duration)
+        )
+    }
+
+    /**
+     * Reports a gesture honestly.
+     *
+     * `submitted` is not `completed`. Android accepts a gesture and then cancels it because another
+     * app was animating, and a caller told only "submitted" would believe a tap had landed where
+     * the user saw nothing happen. So both are reported, and a refusal to even submit is 409.
+     */
+    private fun tapResponse(outcome: TapOutcome): ServerResponse {
+        if (!outcome.submitted) {
+            return ServerResponse(
+                409, "application/json",
+                buildJsonObject {
+                    put("error", outcome.error ?: "The gesture was refused")
+                    put("submitted", false)
+                    put("grantAction", "android.settings.ACCESSIBILITY_SETTINGS")
+                }.toString()
+            )
+        }
+        return ServerResponse.json(
+            buildJsonObject {
+                put("submitted", true)
+                put("completed", outcome.completed)
+                if (outcome.error != null) put("note", outcome.error)
+            }.toString()
+        )
     }
 
     private fun clipboardRead(): ServerResponse {
