@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  What device administrator lets Android Star do: lock the screen.
+
+  That is the only policy listed. Listing more would be a promise the platform does not keep —
+  wiping the device, changing the password and enforcing lock screen quality are all things a
+  device admin can be granted, and none of them are things this platform does.
+-->
+<device-admin>
+    <uses-policies>
+        <force-lock />
+    </uses-policies>
+</device-admin>

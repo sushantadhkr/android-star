@@ -205,6 +205,26 @@
             </intent-filter>
         </provider>
 
+        <!--
+          Device administrator. The receiver class existed but was never declared here, so
+          DEVICE_ADMIN.lockScreen could not succeed on any device — it would ask the system to lock
+          a screen as an admin that had never been granted. Declared once by the shell; the user
+          still has to turn it on in Settings.
+        -->
+        <receiver
+            android:name="com.personal.base.platform.capabilities.PlatformDeviceAdminReceiver"
+            android:description="@string/device_admin_description"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
+
         <!-- FileProvider for Safe External Content URI Sharing -->
         <provider
             android:name="androidx.core.content.FileProvider"

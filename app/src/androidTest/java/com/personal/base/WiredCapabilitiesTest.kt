@@ -6,6 +6,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.personal.base.core.capability.CapabilityActions
 import android.provider.DocumentsContract
 import com.personal.base.platform.capabilities.PlatformDocumentsProvider
+import com.personal.base.platform.capabilities.OnDeviceMlCapabilityProvider
 import com.personal.base.core.capability.CapabilityType
 import com.personal.base.platform.capabilities.PlatformAccessibilityService
 import com.personal.base.core.capability.PlatformCapabilityRegistry
@@ -560,13 +561,13 @@ class WiredCapabilitiesTest {
     }
 
     @Test
-    fun anImageIsNeededBeforeAnythingTriesToReadIt() {
+    fun anImageIsNeededBeforeAnythingTriesToLookAtIt() {
         val response = actions.invoke(
             CapabilityType.ON_DEVICE_ML,
-            "recognize",
+            "findFaces",
             JsonObject(mapOf(
                 "capability" to JsonPrimitive("ON_DEVICE_ML"),
-                "action" to JsonPrimitive("recognize")
+                "action" to JsonPrimitive("findFaces")
             ))
         )
         assertTrue("with no image the request must be refused, got ${response.body}", response.status == 400)
@@ -1035,6 +1036,39 @@ class WiredCapabilitiesTest {
             runCatching {
                 provider.createDocument(PlatformDocumentsProvider.ROOT_ID, "text/plain", "x.txt")
             }.isFailure
+        )
+    }
+
+    @Test
+    fun theDetectorIsNotBeingHandedABlankImage() {
+        // The failure this guards against is silent: a conversion bug produces "no faces" for every
+        // photo, which is indistinguishable from a working detector on pictures of empty rooms.
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+        val provider = OnDeviceMlCapabilityProvider(ctx, PlatformLogger())
+
+        // A flat mid-grey source. Whatever the detector receives must still be mid-grey.
+        val grey = android.graphics.Bitmap.createBitmap(200, 150, android.graphics.Bitmap.Config.ARGB_8888)
+        grey.eraseColor(android.graphics.Color.rgb(128, 128, 128))
+
+        val source = provider.averageBrightness(grey)
+        val analysed = provider.analysisBrightness(grey)
+        grey.recycle()
+
+        assertTrue("the source bitmap must really be mid-grey, got $source", source in 120f..136f)
+        assertTrue(
+            "the bitmap handed to the detector must not be blank or mangled: source=$source " +
+                "analysed=$analysed",
+            kotlin.math.abs(analysed - source) < 6f
+        )
+
+        // And a 12MP source must be scaled down rather than rejected outright.
+        val big = android.graphics.Bitmap.createBitmap(4000, 3000, android.graphics.Bitmap.Config.ARGB_8888)
+        big.eraseColor(android.graphics.Color.rgb(200, 200, 200))
+        val size = provider.analysisSize(big)
+        big.recycle()
+        assertTrue(
+            "a very large image must be scaled to fit the detector's buffer, got $size",
+            size.first <= 480 && size.second <= 480 && size.first > 0
         )
     }
 }

@@ -7,7 +7,6 @@ import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.workDataOf
@@ -101,7 +100,10 @@ class BackgroundWorkCapabilityProvider(
                     .setRequiresCharging(requireCharging)
                     .build()
             )
-            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+            // Expedited is deliberately not requested. Android rejects an expedited job that also
+            // carries a storage or device-idling constraint, so asking for it whenever the caller
+            // said requireCharging turned a perfectly reasonable documented call into a 500.
+            // Queued work that respects the constraints is the honest trade for never failing.
             .setInputData(
                 workDataOf(
                     CapabilityWorkWorker.KEY_TASK to name,

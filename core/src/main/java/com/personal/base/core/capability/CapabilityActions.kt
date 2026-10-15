@@ -72,6 +72,7 @@ import com.personal.base.platform.capabilities.TelephonyCallLogCapabilityProvide
 import com.personal.base.platform.capabilities.TextToSpeechCapabilityProvider
 import com.personal.base.platform.capabilities.UsbCapabilityProvider
 import com.personal.base.platform.capabilities.VpnCapabilityProvider
+import com.personal.base.platform.capabilities.VibrationHapticsCapabilityProvider
 import com.personal.base.platform.capabilities.WifiCapabilityProvider
 import com.personal.base.platform.capabilities.OverlayWindowCapabilityProvider
 import com.personal.base.platform.permissions.RestrictedPermissions
@@ -106,6 +107,9 @@ class CapabilityActions(
 
         /** Beyond this a caller is almost certainly not scheduling work, and a long hold is useless. */
         const val MAX_WORK_DELAY_SECONDS = 7 * 24 * 60 * 60L
+
+        /** Ten seconds. Anything longer is a hostage situation, not a buzz. */
+        const val MAX_VIBRATION_MS = 10_000L
     }
 
     /** Every capability with a callable surface. */
@@ -344,7 +348,7 @@ class CapabilityActions(
                     ParamDoc("peerId", "string", true, "Identifier for the other device", "peer-1"),
                     ParamDoc("pin", "string", true, "Pairing PIN the peer must confirm", "123456")
                 ), """{"capability":"NFC","action":"pairingRecord","peerId":"peer-1","pin":"123456"}""",
-                    """{"records":[{"type":"android.com:pkg","data":"com.personal.base"}],"mime":"application/vnd.android.ndef"}""",
+                    """{"recordCount":2,"bytes":248}""",
                     handler = { p -> nfcPairingRecord(p) })
             )
         ),
@@ -443,9 +447,10 @@ class CapabilityActions(
         ),
         CapabilitySpec(
             CapabilityType.LOCATION, "Read the last known location", listOf(
-                ActionSpec("lastKnown", "The most recent fix the platform has seen", emptyList(),
+                ActionSpec("lastKnown", "The most recent fix, or {available:false} until one arrives",
+                    emptyList(),
                     """{"capability":"LOCATION","action":"lastKnown"}""",
-                    """{"latitude":51.5074,"longitude":-0.1278,"accuracyMeters":12.0,"provider":"gps","timestamp":1752000000000}""",
+                    """{"available":true,"latitude":51.5074,"longitude":-0.1278,"accuracyMeters":12.0,"provider":"gps","timestamp":1752000000000}""",
                     handler = { p -> locationLastKnown(p) })
             )
         ),
@@ -457,7 +462,7 @@ class CapabilityActions(
                     ParamDoc("longitude", "number", true, "Longitude of the centre", "-0.1278"),
                     ParamDoc("radiusMeters", "number", false, "How far out counts as arriving", "150")
                 ), """{"capability":"GEOFENCE_ACTIVITY","action":"add","id":"home","latitude":51.5074,"longitude":-0.1278}""",
-                    """{"added":true,"id":"home","count":1}""", handler = { p -> geofenceAdd(p) }),
+                    """{"added":true,"id":"home"}""", handler = { p -> geofenceAdd(p) }),
                 ActionSpec("remove", "Stop watching a place", listOf(
                     ParamDoc("id", "string", true, "The geofence to remove", "home")
                 ), """{"capability":"GEOFENCE_ACTIVITY","action":"remove","id":"home"}""",
@@ -541,17 +546,19 @@ class CapabilityActions(
             )
         ),
         CapabilitySpec(
-            CapabilityType.ON_DEVICE_ML, "Recognise text in an image, on the device", listOf(
+            CapabilityType.ON_DEVICE_ML, "Look at an image, on the device", listOf(
                 ActionSpec(
-                    "recognize",
-                    "Read text out of an image, without anything leaving the phone",
+                    "findFaces",
+                    "Find faces in an image. Returns an empty list when there are none, and " +
+                        "never invents a result. Text recognition is NOT offered: Android ships no " +
+                        "on-device OCR API and ML Kit is not a dependency of this platform.",
                     listOf(
                         ParamDoc("path", "string", false, "Absolute path to an image file", "/sdcard/Pictures/shot.jpg"),
                         ParamDoc("base64", "string", false, "The image inline, instead of a path")
                     ),
-                    """{"capability":"ON_DEVICE_ML","action":"recognize","path":"/sdcard/Pictures/shot.jpg"}""",
-                    """{"text":"Invoice 4821","confidence":0.94,"labels":["invoice","receipt"]}""",
-                    handler = { p -> mlRecognize(p) }
+                    """{"capability":"ON_DEVICE_ML","action":"findFaces","path":"/sdcard/Pictures/shot.jpg"}""",
+                    """{"faces":1,"brightness":0.42,"imageWidth":1080,"imageHeight":2400,"boxes":[{"centreX":0.5,"centreY":0.31,"width":0.22,"height":0.14,"eyeDistance":0.08,"confidence":78.0}],"textRecognised":false}""",
+                    handler = { p -> mlFindFaces(p) }
                 )
             )
         ),
@@ -683,20 +690,20 @@ class CapabilityActions(
                         "nothing arbitrary is run.",
                     emptyList(),
                     """{"capability":"BACKGROUND_WORK","action":"tasks"}""",
-                    """{"tasks":[{"name":"storage.scan","description":"Re-index downloaded files"}]}""",
+                    """{"tasks":[{"name":"capabilities.refresh","description":"Re-read every capability status"},{"name":"downloads.verify","description":"Check the files the platform downloaded"}]}""",
                     handler = { p -> workTasks(p) }
                 ),
                 ActionSpec(
                     "enqueue",
                     "Hand a registered task to the phone and get an id back",
                     listOf(
-                        ParamDoc("task", "string", true, "The name of a task, from 'tasks'", "storage.scan"),
+                        ParamDoc("task", "string", true, "The name of a task, from 'tasks'", "downloads.verify"),
                         ParamDoc("requireNetwork", "boolean", false, "Hold the work until the phone is online", "false"),
                         ParamDoc("requireCharging", "boolean", false, "Hold the work until the phone is charging", "false"),
                         ParamDoc("delaySeconds", "integer", false, "Hold the work at least this long", "0")
                     ),
-                    """{"capability":"BACKGROUND_WORK","action":"enqueue","task":"storage.scan","requireCharging":true}""",
-                    """{"enqueued":true,"task":"storage.scan","workId":"a1b2c3"}""",
+                    """{"capability":"BACKGROUND_WORK","action":"enqueue","task":"downloads.verify","requireCharging":true}""",
+                    """{"enqueued":true,"task":"downloads.verify","workId":"a1b2c3"}""",
                     handler = { p -> workEnqueue(p) }
                 ),
                 ActionSpec(
@@ -704,14 +711,14 @@ class CapabilityActions(
                     "Every unit of capability work, with the state it reached",
                     emptyList(),
                     """{"capability":"BACKGROUND_WORK","action":"list"}""",
-                    """{"work":[{"task":"storage.scan","state":"SUCCEEDED","lastResult":"Indexed 12 files"}]}""",
+                    """{"work":[{"task":"downloads.verify","state":"SUCCEEDED","lastResult":"Checked 12 file(s), 340 KiB total"}]}""",
                     handler = { p -> workList(p) }
                 ),
                 ActionSpec(
                     "cancel",
                     "Stop a unit of capability work",
-                    listOf(ParamDoc("task", "string", true, "The name of a task", "storage.scan")),
-                    """{"capability":"BACKGROUND_WORK","action":"cancel","task":"storage.scan"}""",
+                    listOf(ParamDoc("task", "string", true, "The name of a task", "downloads.verify")),
+                    """{"capability":"BACKGROUND_WORK","action":"cancel","task":"downloads.verify"}""",
                     """{"cancelled":true}""",
                     handler = { p -> workCancel(p) }
                 )
@@ -1023,10 +1030,17 @@ class CapabilityActions(
     }
 
     private fun hapticPulse(p: JsonObject): ServerResponse {
-        val provider = provider<DeviceActionCapabilityProvider>(CapabilityType.VIBRATION_HAPTICS)
+        // VibrationHapticsCapabilityProvider, not DeviceActionCapabilityProvider. The container
+        // registers this class for VIBRATION_HAPTICS; casting to the other one silently yielded
+        // null and the action answered "no provider on this device" forever while the docs
+        // advertised it as working. The two classes disagreeing is the whole bug.
+        val provider = provider<VibrationHapticsCapabilityProvider>(CapabilityType.VIBRATION_HAPTICS)
             ?: return unsupported(CapabilityType.VIBRATION_HAPTICS)
         val ms = p.long("durationMs") ?: 200L
-        provider.vibrate(ms)
+        if (ms !in 1..MAX_VIBRATION_MS) return badRequest("'durationMs' must be 1-$MAX_VIBRATION_MS")
+
+        // One segment of the requested length, which is exactly what a single buzz is.
+        provider.vibratePattern(longArrayOf(ms))
         return ServerResponse.json(buildJsonObject { put("vibrated", ms) }.toString())
     }
 
@@ -1167,9 +1181,24 @@ class CapabilityActions(
         val seconds = p.int("seconds") ?: return badRequest("Missing 'seconds'")
         if (seconds <= 0) return badRequest("'seconds' must be greater than zero")
 
+        // Named before it is attempted. A timer is set by asking the system clock app, and a phone
+        // with no clock installed answers the same "no" as one that is merely busy — saying which
+        // is the difference between a fixable report and a shrug.
+        if (!provider.canSetTimer()) {
+            return ServerResponse(
+                409, "application/json",
+                """{"error":"No app on this phone accepts a timer request","set":false,""" +
+                    """"hint":"A timer is set through the system clock app, and none is installed " +
+                    "or enabled. Install or enable one, or use ALARM_TIMER differently."}"""
+            )
+        }
+
         val ok = provider.setTimer(seconds, p.string("message") ?: "Timer")
         return if (ok) ServerResponse.json("""{"set":true,"seconds":$seconds}""")
-        else ServerResponse(409, "application/json", """{"error":"Could not start the timer"}""")
+        else ServerResponse(
+            409, "application/json",
+            """{"error":"The clock app refused the timer","set":false}"""
+        )
     }
 
     private fun audioVolumeGet(p: JsonObject): ServerResponse {
@@ -1761,11 +1790,11 @@ class CapabilityActions(
         val provider = provider<LocationCapabilityProvider>(CapabilityType.LOCATION)
             ?: return unsupported(CapabilityType.LOCATION)
 
-        // Nothing has arrived yet is a real and common answer; reporting it as a refusal would send
-        // the caller looking for a permission that is not the problem.
+        // Nothing has arrived yet is a real and common answer, and it is 200 rather than 204:
+        // 204 means "no body", yet the answer needs one to say why there is no location. Refusing
+        // it instead would send the caller hunting for a permission that is not the problem.
         val loc: PlatformLocation? = provider.lastLocation.value
-            ?: return ServerResponse(
-                204, "application/json",
+            ?: return ServerResponse.json(
                 """{"available":false,"hint":"No fix has arrived yet; ask again once location is warm"}"""
             )
 
@@ -1931,7 +1960,7 @@ class CapabilityActions(
     // Real capabilities
     // =====================================================================
 
-    private fun mlRecognize(p: JsonObject): ServerResponse {
+    private fun mlFindFaces(p: JsonObject): ServerResponse {
         val provider = provider<OnDeviceMlCapabilityProvider>(CapabilityType.ON_DEVICE_ML)
             ?: return unsupported(CapabilityType.ON_DEVICE_ML)
 
@@ -1939,12 +1968,31 @@ class CapabilityActions(
             ?: return badRequest("Supply either 'path' to an image file, or 'base64' image data")
 
         return try {
-            val result = provider.recognizeTextFromImage(bitmap)
+            val faces = provider.findFaces(bitmap)
+            val brightness = provider.averageBrightness(bitmap)
             ServerResponse.json(
                 buildJsonObject {
-                    put("text", result.detectedText)
-                    put("confidence", result.confidence)
-                    put("labels", buildJsonArray { result.labels.forEach { add(JsonPrimitive(it)) } })
+                    put("faces", faces.size)
+                    put("brightness", brightness)
+                    put("imageWidth", bitmap.width)
+                    put("imageHeight", bitmap.height)
+                    put("boxes", buildJsonArray {
+                        faces.forEach { f ->
+                            add(
+                                buildJsonObject {
+                                    put("centreX", f.centreX)
+                                    put("centreY", f.centreY)
+                                    put("width", f.width)
+                                    put("height", f.height)
+                                    put("eyeDistance", f.eyeDistance)
+                                    put("confidence", f.confidence)
+                                }
+                            )
+                        }
+                    })
+                    // Said in the answer as well as the docs, so a caller who only reads the
+                    // response still learns that no text recognition is happening.
+                    put("textRecognised", false)
                 }.toString()
             )
         } finally {

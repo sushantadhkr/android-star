@@ -23,6 +23,20 @@ class AlarmTimerCapabilityProvider(
 
     private val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
+    /**
+     * Whether any app on this phone will accept a timer request.
+     *
+     * The timer is set by handing an intent to the system clock app, so on a phone with no clock —
+     * or with one disabled — there is nothing to receive it. Checked up front so the API can say
+     * that, rather than reporting a bare "could not start the timer" that points nowhere.
+     */
+    fun canSetTimer(): Boolean = try {
+        val intent = Intent(AlarmClock.ACTION_SET_TIMER)
+        context.packageManager.resolveActivity(intent, 0) != null
+    } catch (e: Exception) {
+        false
+    }
+
     fun setTimer(seconds: Int, message: String): Boolean {
         return try {
             val intent = Intent(AlarmClock.ACTION_SET_TIMER).apply {

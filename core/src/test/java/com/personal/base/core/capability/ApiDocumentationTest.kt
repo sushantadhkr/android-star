@@ -223,4 +223,63 @@ class ApiDocumentationTest {
         assertTrue("a press that cannot be read back is a side effect", log != null)
         assertTrue(log!!.example.contains("\"action\""))
     }
+
+    /**
+     * An action must look up the provider that declares *that* capability type.
+     *
+     * The name-based test above is not enough, and the gap it left shipped a broken action:
+     * `VIBRATION_HAPTICS.pulse` looked up `DeviceActionCapabilityProvider`. The container does build
+     * that class — for DEVICE_ACTIONS — so the name check passed, while the cast at runtime yielded
+     * null and the action answered "no provider on this device" forever, from a documentation page
+     * advertising it as working.
+     *
+     * Each provider declares the type it serves, so the pairing is simply read off and checked.
+     */
+    @Test
+    fun `every action looks up the provider that declares its own capability type`() {
+        val capabilitiesDir = File("src/main/java/com/personal/base/platform/capabilities")
+        val actionsFile = File("src/main/java/com/personal/base/core/capability/CapabilityActions.kt")
+        assertTrue(capabilitiesDir.isDirectory && actionsFile.exists())
+
+        // className -> the CapabilityType the class itself declares it serves.
+        val declaredType = mutableMapOf<String, CapabilityType>()
+        capabilitiesDir.listFiles()
+            ?.filter { it.extension == "kt" }
+            ?.forEach { file ->
+                val text = file.readText()
+                Regex("""class\s+([A-Za-z]+)\s*\([^)]*\)\s*:\s*CapabilityProvider\s*\{""")
+                    .findAll(text)
+                    .forEach { classMatch ->
+                        val name = classMatch.groupValues[1]
+                        val body = text.substring(classMatch.range.last + 1)
+                        val type = Regex(
+                            """override\s+val\s+type\s*:\s*CapabilityType\s*=\s*CapabilityType\.([A-Z_]+)"""
+                        ).find(body)?.groupValues?.get(1) ?: return@forEach
+                        declaredType[name] = CapabilityType.valueOf(type)
+                    }
+            }
+
+        assertTrue(
+            "the scan found no provider types at all; the check would pass on nothing",
+            declaredType.size > 20
+        )
+
+        val mismatched = Regex("""provider<([A-Za-z]+)>\(\s*CapabilityType\.([A-Z_]+)\s*\)""")
+            .findAll(actionsFile.readText())
+            .map { it.groupValues[1] to CapabilityType.valueOf(it.groupValues[2]) }
+            .distinct()
+            .filter { (className, requested) ->
+                val serves = declaredType[className]
+                // Only accuse when the class declares a type. A provider declared outside this
+                // directory would otherwise be flagged for a reason this file cannot see.
+                serves != null && serves != requested
+            }
+            .toList()
+
+        assertTrue(
+            "these actions look up a provider that declares a different capability type, so they " +
+                "will always answer 409: $mismatched",
+            mismatched.isEmpty()
+        )
+    }
 }
