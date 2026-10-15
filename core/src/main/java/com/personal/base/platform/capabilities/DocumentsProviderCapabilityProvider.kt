@@ -34,8 +34,15 @@ class PlatformDocumentsProvider : DocumentsProvider() {
             ), "Android Star")
         }
 
+    /**
+     * Local only, and deliberately no create flag.
+     *
+     * `createDocument` below refuses, so advertising `FLAG_SUPPORTS_CREATE` would offer the user a
+     * "new folder" button that quietly does nothing — worse than not offering it. The two have to
+     * agree, and a device test holds them to it.
+     */
     private val rootFlags: Int
-        get() = DocumentsContract.Root.FLAG_LOCAL_ONLY or DocumentsContract.Root.FLAG_SUPPORTS_CREATE
+        get() = DocumentsContract.Root.FLAG_LOCAL_ONLY
 
     override fun onCreate(): Boolean = true
 

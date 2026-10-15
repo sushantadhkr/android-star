@@ -4,6 +4,8 @@ import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.personal.base.core.capability.CapabilityActions
+import android.provider.DocumentsContract
+import com.personal.base.platform.capabilities.PlatformDocumentsProvider
 import com.personal.base.core.capability.CapabilityType
 import com.personal.base.platform.capabilities.PlatformAccessibilityService
 import com.personal.base.core.capability.PlatformCapabilityRegistry
@@ -867,5 +869,172 @@ class WiredCapabilitiesTest {
                 !response.body.contains("\"deleted\":true")
             )
         }
+    }
+
+    /**
+     * Exercises the DocumentsProvider the way the system's file picker would.
+     *
+     * The shell cannot reach it through ContentResolver — that is MANAGE_DOCUMENTS working, which is
+     * correct — so the provider is driven directly against real files on disk. This is the only way
+     * to prove the cursor contents are right rather than merely non-empty.
+     */
+    @Test
+    fun theDocumentsProviderServesRealFilesToThePicker() {
+        val provider = PlatformDocumentsProvider()
+        provider.attachInfo(
+            InstrumentationRegistry.getInstrumentation().targetContext,
+            android.content.pm.ProviderInfo().apply {
+                authority = "com.personal.base.documents"
+                // DocumentsProvider refuses to attach unless exported, which is the framework
+                // restating the manifest's own requirement — the provider must be reachable for
+                // the system to hand it out in a picker.
+                exported = true
+                grantUriPermissions = true
+                // The framework refuses to attach a DocumentsProvider that is not protected by
+                // MANAGE_DOCUMENTS, which is exactly the guardrail the manifest declares. Stating
+                // it here too keeps this test faithful to what is actually installed.
+                readPermission = "android.permission.MANAGE_DOCUMENTS"
+                writePermission = "android.permission.MANAGE_DOCUMENTS"
+            }
+        )
+
+        // The root must be visible, or the picker shows nothing at all.
+        val roots: android.database.Cursor = provider.queryRoots(null)
+        assertTrue("the picker must be offered at least one root", roots.count >= 1)
+        assertTrue("the roots cursor must be readable", roots.moveToFirst())
+        assertEquals(
+            "the first root must be the one the API advertises",
+            PlatformDocumentsProvider.ROOT_ID,
+            roots.getString(roots.getColumnIndexOrThrow(DocumentsContract.Root.COLUMN_ROOT_ID))
+        )
+
+        // Put a real file where the provider reads.
+        val dir = java.io.File(
+            android.os.Environment.getExternalStoragePublicDirectory(
+                android.os.Environment.DIRECTORY_DOWNLOADS
+            ),
+            "Android Star"
+        )
+        val probe = java.io.File(dir, "provider-probe.txt")
+        probe.writeText("served by the provider")
+
+        val children: android.database.Cursor =
+            provider.queryChildDocuments(
+                PlatformDocumentsProvider.ROOT_ID,
+                null,
+                null as String?
+            )
+        val ids = mutableListOf<String>()
+        val idColumn = children.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+        val sizeColumn = children.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE)
+        var foundProbe = false
+        var probeSize = -1L
+        while (children.moveToNext()) {
+            val id = children.getString(idColumn)
+            ids.add(id)
+            if (id == probe.name) {
+                foundProbe = true
+                probeSize = children.getLong(sizeColumn)
+            }
+        }
+        assertTrue(
+            "a real file in the folder must appear in the picker, saw $ids",
+            foundProbe
+        )
+        assertEquals(
+            "the size reported must be the file's real size",
+            probe.length(),
+            probeSize
+        )
+        children.close()
+
+        // And it must actually open. Reading it back is the only proof the cursor was not fiction.
+        val descriptor = provider.openDocument(probe.name, "r", null)
+        val text = try {
+            java.io.FileInputStream(descriptor.fileDescriptor).use { stream ->
+                stream.readBytes().toString(Charsets.UTF_8)
+            }
+        } finally {
+            descriptor.close()
+        }
+        assertEquals("served by the provider", text)
+        probe.delete()
+    }
+
+    @Test
+    fun theDocumentsProviderWillNotOpenAnythingOutsideItsFolder() {
+        val provider = PlatformDocumentsProvider()
+        provider.attachInfo(
+            InstrumentationRegistry.getInstrumentation().targetContext,
+            android.content.pm.ProviderInfo().apply {
+                authority = "com.personal.base.documents"
+                // DocumentsProvider refuses to attach unless exported, which is the framework
+                // restating the manifest's own requirement — the provider must be reachable for
+                // the system to hand it out in a picker.
+                exported = true
+                grantUriPermissions = true
+                // The framework refuses to attach a DocumentsProvider that is not protected by
+                // MANAGE_DOCUMENTS, which is exactly the guardrail the manifest declares. Stating
+                // it here too keeps this test faithful to what is actually installed.
+                readPermission = "android.permission.MANAGE_DOCUMENTS"
+                writePermission = "android.permission.MANAGE_DOCUMENTS"
+            }
+        )
+
+        for (evil in listOf("../../etc/passwd", "..%2Fpasswd", "sub/child", "..")) {
+            val escaped = runCatching {
+                val descriptor = provider.openDocument(evil, "r", null)
+                try {
+                    java.io.FileInputStream(descriptor.fileDescriptor).use { it.readBytes() }
+                } finally {
+                    descriptor.close()
+                }
+            }
+            assertTrue(
+                "'$evil' must not be readable through the picker",
+                escaped.isFailure
+            )
+            val deleted = runCatching { provider.deleteDocument(evil) }
+            assertTrue("'$evil' delete must throw, not quietly succeed", deleted.isFailure)
+            assertTrue("'$evil' must not be deletable through the picker", deleted.isFailure)
+        }
+    }
+
+    @Test
+    fun theDocumentsProviderRefusesToClaimItCanCreate() {
+        val provider = PlatformDocumentsProvider()
+        provider.attachInfo(
+            InstrumentationRegistry.getInstrumentation().targetContext,
+            android.content.pm.ProviderInfo().apply {
+                authority = "com.personal.base.documents"
+                // DocumentsProvider refuses to attach unless exported, which is the framework
+                // restating the manifest's own requirement — the provider must be reachable for
+                // the system to hand it out in a picker.
+                exported = true
+                grantUriPermissions = true
+                // The framework refuses to attach a DocumentsProvider that is not protected by
+                // MANAGE_DOCUMENTS, which is exactly the guardrail the manifest declares. Stating
+                // it here too keeps this test faithful to what is actually installed.
+                readPermission = "android.permission.MANAGE_DOCUMENTS"
+                writePermission = "android.permission.MANAGE_DOCUMENTS"
+            }
+        )
+
+        // It advertises no create flag, so it must also refuse to create. Offering one without the
+        // other is how a picker ends up silently discarding whatever the user creates.
+        val roots: android.database.Cursor = provider.queryRoots(null)
+        roots.moveToFirst()
+        val rootFlags = roots.getInt(roots.getColumnIndexOrThrow(DocumentsContract.Root.COLUMN_FLAGS))
+        assertEquals(
+            "the root must not advertise document creation it cannot honour",
+            0,
+            rootFlags and DocumentsContract.Root.FLAG_SUPPORTS_CREATE
+        )
+        assertTrue(
+            "createDocument must refuse rather than return an id for nothing",
+            runCatching {
+                provider.createDocument(PlatformDocumentsProvider.ROOT_ID, "text/plain", "x.txt")
+            }.isFailure
+        )
     }
 }
