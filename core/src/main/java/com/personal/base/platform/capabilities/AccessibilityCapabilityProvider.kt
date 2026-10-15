@@ -71,32 +71,60 @@ class PlatformAccessibilityService : AccessibilityService() {
     var lastGestureError: String? = null
         private set
 
+    /** Released by the gesture callback, so a caller can wait for the real outcome. */
+    private var gestureLatch = java.util.concurrent.CountDownLatch(0)
+
     fun dispatchSwipe(fromX: Float, fromY: Float, toX: Float, toY: Float, durationMs: Long): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false
         val path = Path().apply {
             moveTo(fromX, fromY)
             lineTo(toX, toY)
         }
-        val stroke = GestureDescription.StrokeDescription(path, 0, durationMs)
-        val gesture = GestureDescription.Builder().addStroke(stroke).build()
-        return dispatchGesture(gesture, recordingCallback(), null)
+        return dispatchStroke(path, durationMs)
     }
 
     fun dispatchTap(x: Float, y: Float, durationMs: Long = 50L): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false
         val path = Path().apply { moveTo(x, y) }
+        return dispatchStroke(path, durationMs)
+    }
+
+    private fun dispatchStroke(path: Path, durationMs: Long): Boolean {
         val stroke = GestureDescription.StrokeDescription(path, 0, durationMs)
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
 
+        // Reset before sending, so the fields describe this gesture and not the last one.
         lastGestureCompleted = null
         lastGestureError = null
+        gestureLatch = java.util.concurrent.CountDownLatch(1)
 
         return dispatchGesture(gesture, recordingCallback(), null)
+    }
+
+    /**
+     * Waits, briefly, for Android to say what became of the last gesture.
+     *
+     * The result callback fires on the main thread after the gesture has actually been attempted,
+     * so reading `lastGestureCompleted` the instant `dispatchGesture` returns always yields null.
+     * That would leave the field permanently uninformative and quietly undo the reason for
+     * reporting both "submitted" and "completed". A short bounded wait costs almost nothing when
+     * the gesture succeeds straight away, and caps the cost when Android never answers.
+     */
+    fun awaitGestureOutcome(timeoutMs: Long = 700L): Boolean? = try {
+        if (gestureLatch.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+            lastGestureCompleted
+        } else {
+            null
+        }
+    } catch (e: InterruptedException) {
+        Thread.currentThread().interrupt()
+        null
     }
 
     private fun recordingCallback() = object : AccessibilityService.GestureResultCallback() {
         override fun onCompleted(gestureDescription: GestureDescription?) {
             lastGestureCompleted = true
+            gestureLatch.countDown()
         }
 
         override fun onCancelled(gestureDescription: GestureDescription?) {
@@ -104,6 +132,7 @@ class PlatformAccessibilityService : AccessibilityService() {
             // input capability cannot afford: the user would see nothing happen.
             lastGestureCompleted = false
             lastGestureError = "Another app or the system took over before the gesture ran"
+            gestureLatch.countDown()
         }
     }
 }
@@ -176,7 +205,9 @@ class AccessibilityCapabilityProvider(
             }
 
         val submitted = send(service, durationMs)
-        val completed = service.lastGestureCompleted
+        // Asked of the service rather than read straight off it: the field is null until the
+        // callback runs, and the whole purpose of this answer is to distinguish sent from done.
+        val completed = if (submitted) service.awaitGestureOutcome() else null
         logger.i("Accessibility", "$what submitted=$submitted completed=$completed")
         return TapOutcome(submitted = submitted, completed = completed, error = service.lastGestureError)
     }
