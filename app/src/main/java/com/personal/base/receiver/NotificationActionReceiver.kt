@@ -28,6 +28,9 @@ import java.util.concurrent.Executors
 class NotificationActionReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
+        // A button press is an explicit request, so the runtime comes up.
+        (context.applicationContext as? com.personal.base.PersonalBaseApplication)
+            ?.container?.ensurePlatformRuntime()
         if (intent.action != NotificationActionContract.INTENT_ACTION) return
 
         val container = (context.applicationContext as? PersonalBaseApplication)?.container

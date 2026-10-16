@@ -26,6 +26,9 @@ import com.personal.base.core.app.WidgetSpec
 class PlatformWidgetProvider : AppWidgetProvider() {
 
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
+        // A widget redraw means someone is looking at a capability, so the runtime comes up.
+        (context.applicationContext as? com.personal.base.PersonalBaseApplication)
+            ?.container?.ensurePlatformRuntime()
         render(context, manager, ids)
     }
 

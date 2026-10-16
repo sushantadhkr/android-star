@@ -16,6 +16,7 @@ class BootReceiver : BroadcastReceiver {
         if (action == Intent.ACTION_BOOT_COMPLETED || action == Intent.ACTION_MY_PACKAGE_REPLACED) {
             val app = context.applicationContext as? PersonalBaseApplication
             app?.container?.logger?.i("BootReceiver", "Received $action. Recovering background scheduler...")
+            app?.container?.ensurePlatformRuntime()
             app?.container?.backgroundManager?.schedulePeriodicWork()
         }
     }

@@ -10,6 +10,7 @@ import com.personal.base.core.app.DashboardLayoutStore
 import com.personal.base.generated.GeneratedAppRegistry
 import com.personal.base.core.capability.CapabilityActions
 import com.personal.base.core.capability.CapabilityApi
+import com.personal.base.core.capability.CapabilityType
 import com.personal.base.core.capability.CapabilityCatalogue
 import com.personal.base.core.capability.CapabilityGate
 import com.personal.base.core.security.ApiTokenStore
@@ -173,6 +174,10 @@ class PlatformContainer(val context: Context) {
 
     // 3. Central Capability Registry
     val capabilityRegistry = PlatformCapabilityRegistry()
+
+    /** Whether [ensurePlatformRuntime] has run. Guards it to once per process. */
+    @Volatile
+    private var runtimeReady = false
     // Pinned Platform surface: master and per-capability control.
     val capabilityGate = CapabilityGate(context)
     val capabilityCatalogue = CapabilityCatalogue(capabilityRegistry, capabilityGate)
@@ -308,7 +313,14 @@ class PlatformContainer(val context: Context) {
     val accessibilityProvider = AccessibilityCapabilityProvider(context, logger)
     val remoteInputProvider = RemoteInputCapabilityProvider(context, accessibilityProvider, logger)
 
+    /**
+     * Cheap, always-safe startup: logging, crash handling and capability declarations.
+     *
+     * Nothing here starts a timer, registers a callback or opens a socket, so a process started
+     * only to deliver a notification costs microseconds.
+     */
     fun initialize() {
+        val startedAt = System.currentTimeMillis()
         logger.i("PlatformContainer", "Bootstrapping Android Star Base Platform (Device: ${deviceSigner.identity.deviceId})...")
 
         // Core builds the intents for notification buttons but cannot name a class in the shell.
@@ -335,6 +347,121 @@ class PlatformContainer(val context: Context) {
         // Install Crash Interceptor
         crashHandler.install()
 
+        // Every capability provider, declared rather than built. A lambda costs nothing; an object
+        // costs a constructor, a system service lookup and possibly a listener. Building 62 of
+        // those to hand over a notification is the cost this split exists to remove.
+        capabilityRegistry.declare(CapabilityType.BIOMETRIC) { BiometricAuthCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.WIFI) { WifiCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.NFC) { NfcCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.CALENDAR) { CalendarCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.BATTERY_POWER) { BatteryPowerCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.DISPLAY) { DisplayCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.AUDIO_VOLUME) { AudioVolumeCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.MEDIA_SESSION) { MediaSessionCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.MEDIA_LIBRARY) { MediaLibraryCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.TEXT_TO_SPEECH) { TextToSpeechCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.SPEECH_RECOGNITION) { SpeechRecognitionCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.VIBRATION_HAPTICS) { VibrationHapticsCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.FLASHLIGHT) { FlashlightCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.INSTALLED_APPS) { InstalledAppsCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.ACCESSIBILITY) { AccessibilityCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.SCREEN_CAPTURE) { ScreenCaptureCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.USB) { UsbCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.DO_NOT_DISTURB) { DoNotDisturbCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.SYSTEM_SETTINGS) { SystemSettingsCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.ALARM_TIMER) { AlarmTimerCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.QR_BARCODE) { QrBarcodeCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.DEVICE_INFO) { DeviceInfoCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.HEALTH_CONNECT) { HealthConnectCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.DEVICE_ADMIN) { DeviceAdminCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.DOWNLOAD_MANAGER) { DownloadManagerCapabilityProvider(context, logger) }
+        // Replaces the system DownloadManager for anything the API drives, so the file lands in
+        // Downloads through MediaStore and its progress and destination can actually be reported.
+        capabilityRegistry.declare(CapabilityType.DOWNLOAD_MANAGER) { MediaDownloadCapabilityProvider(context, logger, downloadLocation) }
+        capabilityRegistry.declare(CapabilityType.VPN) { VpnCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.GEOFENCE_ACTIVITY) { GeofenceActivityCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.NETWORK_USAGE) { NetworkUsageCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.SIM_SUBSCRIPTION) { SimSubscriptionCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.REMOTE_INPUT) { RemoteInputCapabilityProvider(context, accessibilityProvider, logger) }
+        capabilityRegistry.declare(CapabilityType.KEYGUARD) { KeyguardCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.CALL_CONTROL) { CallControlCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.NOTIFICATION_LISTENER) { NotificationListenerCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.OVERLAY_WINDOW) { OverlayWindowCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.MEDIA_STREAM_ENCODER) { MediaStreamEncoderCapabilityProvider(logger) }
+        capabilityRegistry.declare(CapabilityType.AUDIO_STREAM) { AudioStreamCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.PACKAGE_INSTALLER) { PackageInstallerCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.DOCUMENTS_PROVIDER) { DocumentsProviderCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.CREDENTIAL_MANAGER) { CredentialManagerCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.ON_DEVICE_ML) { OnDeviceMlCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.RESTRICTED_SHELL) { RestrictedShellCapabilityProvider(logger) }
+        capabilityRegistry.declare(CapabilityType.ALL_FILES_ACCESS) { AllFilesAccessCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.INPUT_METHOD) { InputMethodCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.CLIPBOARD_BACKGROUND) { ClipboardBackgroundCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.PHONE) { PhoneCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.BACKGROUND_WORK) { BackgroundWorkCapabilityProvider(context, logger) }
+
+        // Also register low-level legacy hardware providers
+        capabilityRegistry.declare(CapabilityType.SENSORS) { SensorsCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.LOCATION) { LocationCapabilityProvider(context, permissionManager, logger) }
+        capabilityRegistry.declare(CapabilityType.NOTIFICATIONS) {
+            NotificationCapabilityProvider(
+                context = context,
+                permissionManager = permissionManager,
+                logger = logger,
+                // Core cannot name a class in the shell, so the shell hands the receiver over.
+                actionReceiver = NotificationActionReceiver::class.java.name
+            )
+        }
+        capabilityRegistry.declare(CapabilityType.CLIPBOARD) { ClipboardCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.SHARING) { SharingCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.DEVICE_ACTIONS) { DeviceActionCapabilityProvider(context, logger) }
+        capabilityRegistry.declare(CapabilityType.CAMERA) { CameraMicCapabilityProvider(context, permissionManager, isAudio = false, logger) }
+        capabilityRegistry.declare(CapabilityType.MICROPHONE) { CameraMicCapabilityProvider(context, permissionManager, isAudio = true, logger) }
+        // Kept as a value rather than a lambda because three other providers are handed this same
+        // instance, and two must agree about the network or they will disagree about what is online.
+        val connectivityProvider = ConnectivityCapabilityProvider(context, logger)
+        capabilityRegistry.declare(CapabilityType.CONNECTIVITY) { connectivityProvider }
+        capabilityRegistry.declare(CapabilityType.NEARBY_DEVICES) { BluetoothCapabilityProvider(context, permissionManager, logger) }
+        capabilityRegistry.declare(CapabilityType.STORAGE) { StorageCapabilityProvider(context, permissionManager, logger) }
+        capabilityRegistry.declare(CapabilityType.CALL_LOG) { TelephonyCallLogCapabilityProvider(context, permissionManager, logger) }
+        capabilityRegistry.declare(CapabilityType.CONTACTS_ACCOUNTS) { ContactsAccountsCapabilityProvider(context, permissionManager, logger) }
+        capabilityRegistry.declare(CapabilityType.SMS) { SmsCapabilityProvider(context, permissionManager, logger) }
+
+        // These two open real sockets, so they are registered and their actions are advertised.
+        //
+        // SftpServerCapabilityProvider is deliberately not registered: it sets a boolean and logs
+        // "SFTP daemon initialized" without opening anything. Advertising it would tell a caller a
+        // server is running when there is nothing to connect to. Until it has a real daemon it
+        // stays bare, and a test says so.
+        capabilityRegistry.declare(CapabilityType.FILE_SERVER) { FileServerCapabilityProvider(context, connectivityProvider, logger) }
+        capabilityRegistry.declare(CapabilityType.NEARBY_CHAT) { NearbyChatCapabilityProvider(context, deviceSigner, connectivityProvider, logger) }
+
+        // Deliberately ends here. Everything below is deferred to [ensurePlatformRuntime] so that
+        // a process started only to deliver a notification does no more than declare what exists.
+        logger.i(
+            "PlatformContainer",
+            "Declared ${capabilityRegistry.declaredCount()} capabilities in ${System.currentTimeMillis() - startedAt}ms; " +
+                "runtime deferred until something needs it."
+        )
+    }
+
+    /**
+     * Brings up everything the running platform needs: monitors, timers, the API surface, Apps,
+     * widgets and background work.
+     *
+     * Split out of [initialize] on purpose. Android starts the app process to deliver a single
+     * notification, and doing this work at that moment made one WhatsApp message cost a network
+     * callback, two timers, a widget redraw and a periodic job — 262 ms of measured CPU to hand
+     * over a string. The providers are now declared lazily, and this second tier only runs when
+     * something genuinely needs the platform: the Activity, the host service, a boot, a widget
+     * refresh, or a notification button press.
+     *
+     * Runs at most once per process, and is safe to call from any thread.
+     */
+    @Synchronized
+    fun ensurePlatformRuntime() {
+        if (runtimeReady) return
+
         // Start Monitors & Services
         networkMonitor.startMonitoring()
         automationEngine.start()
@@ -349,106 +476,9 @@ class PlatformContainer(val context: Context) {
         // @PlatformAppDefinition, so this line never changes when Apps are added or removed.
         appManager.registerAll(GeneratedAppRegistry.registrations)
 
-        // Give each App its own notification channel under the Apps group, and drop channels for
-        // Apps that no longer exist. Platform channels live in their own group and are untouched.
         notificationChannelManager.syncApps(
             appManager.apps.value.map { it.id to it.name }
         )
-
-        // Apps that implement AppServer publish their own routes. The App manager handles that
-        // whenever an App starts, so nothing needs wiring here.
-        appManager.apps.value
-            .filter { it.instance is com.personal.base.core.app.AppServer }
-            .forEach { entry ->
-                logger.i("PlatformContainer", "App '${entry.name}' is ready to serve")
-            }
-
-        logger.i("PlatformContainer", "Registered ${appManager.apps.value.size} app(s).")
-
-        // Register All 44 Base Capability Providers
-        capabilityRegistry.register(biometricProvider)
-        capabilityRegistry.register(WifiCapabilityProvider(context, logger))
-        capabilityRegistry.register(NfcCapabilityProvider(context, logger))
-        capabilityRegistry.register(CalendarCapabilityProvider(context, logger))
-        capabilityRegistry.register(BatteryPowerCapabilityProvider(context, logger))
-        capabilityRegistry.register(DisplayCapabilityProvider(context, logger))
-        capabilityRegistry.register(AudioVolumeCapabilityProvider(context, logger))
-        capabilityRegistry.register(MediaSessionCapabilityProvider(context, logger))
-        capabilityRegistry.register(MediaLibraryCapabilityProvider(context, logger))
-        capabilityRegistry.register(TextToSpeechCapabilityProvider(context, logger))
-        capabilityRegistry.register(SpeechRecognitionCapabilityProvider(context, logger))
-        capabilityRegistry.register(VibrationHapticsCapabilityProvider(context, logger))
-        capabilityRegistry.register(FlashlightCapabilityProvider(context, logger))
-        capabilityRegistry.register(InstalledAppsCapabilityProvider(context, logger))
-        capabilityRegistry.register(accessibilityProvider)
-        capabilityRegistry.register(ScreenCaptureCapabilityProvider(context, logger))
-        capabilityRegistry.register(UsbCapabilityProvider(context, logger))
-        capabilityRegistry.register(DoNotDisturbCapabilityProvider(context, logger))
-        capabilityRegistry.register(SystemSettingsCapabilityProvider(context, logger))
-        capabilityRegistry.register(AlarmTimerCapabilityProvider(context, logger))
-        capabilityRegistry.register(QrBarcodeCapabilityProvider(context, logger))
-        capabilityRegistry.register(DeviceInfoCapabilityProvider(context, logger))
-        capabilityRegistry.register(HealthConnectCapabilityProvider(context, logger))
-        capabilityRegistry.register(DeviceAdminCapabilityProvider(context, logger))
-        capabilityRegistry.register(DownloadManagerCapabilityProvider(context, logger))
-        // Replaces the system DownloadManager for anything the API drives, so the file lands in
-        // Downloads through MediaStore and its progress and destination can actually be reported.
-        capabilityRegistry.register(MediaDownloadCapabilityProvider(context, logger, downloadLocation))
-        capabilityRegistry.register(VpnCapabilityProvider(context, logger))
-        capabilityRegistry.register(GeofenceActivityCapabilityProvider(context, logger))
-        capabilityRegistry.register(NetworkUsageCapabilityProvider(context, logger))
-        capabilityRegistry.register(SimSubscriptionCapabilityProvider(context, logger))
-        capabilityRegistry.register(remoteInputProvider)
-        capabilityRegistry.register(KeyguardCapabilityProvider(context, logger))
-        capabilityRegistry.register(CallControlCapabilityProvider(context, logger))
-        capabilityRegistry.register(NotificationListenerCapabilityProvider(context, logger))
-        capabilityRegistry.register(OverlayWindowCapabilityProvider(context, logger))
-        capabilityRegistry.register(MediaStreamEncoderCapabilityProvider(logger))
-        capabilityRegistry.register(AudioStreamCapabilityProvider(context, logger))
-        capabilityRegistry.register(PackageInstallerCapabilityProvider(context, logger))
-        capabilityRegistry.register(DocumentsProviderCapabilityProvider(context, logger))
-        capabilityRegistry.register(CredentialManagerCapabilityProvider(context, logger))
-        capabilityRegistry.register(OnDeviceMlCapabilityProvider(context, logger))
-        capabilityRegistry.register(RestrictedShellCapabilityProvider(logger))
-        capabilityRegistry.register(AllFilesAccessCapabilityProvider(context, logger))
-        capabilityRegistry.register(InputMethodCapabilityProvider(context, logger))
-        capabilityRegistry.register(ClipboardBackgroundCapabilityProvider(context, logger))
-        capabilityRegistry.register(PhoneCapabilityProvider(context, logger))
-        capabilityRegistry.register(BackgroundWorkCapabilityProvider(context, logger))
-
-        // Also register low-level legacy hardware providers
-        capabilityRegistry.register(SensorsCapabilityProvider(context, logger))
-        capabilityRegistry.register(LocationCapabilityProvider(context, permissionManager, logger))
-        capabilityRegistry.register(
-            NotificationCapabilityProvider(
-                context = context,
-                permissionManager = permissionManager,
-                logger = logger,
-                // Core cannot name a class in the shell, so the shell hands the receiver over.
-                actionReceiver = NotificationActionReceiver::class.java.name
-            )
-        )
-        capabilityRegistry.register(ClipboardCapabilityProvider(context, logger))
-        capabilityRegistry.register(SharingCapabilityProvider(context, logger))
-        capabilityRegistry.register(DeviceActionCapabilityProvider(context, logger))
-        capabilityRegistry.register(CameraMicCapabilityProvider(context, permissionManager, isAudio = false, logger))
-        capabilityRegistry.register(CameraMicCapabilityProvider(context, permissionManager, isAudio = true, logger))
-        val connectivityProvider = ConnectivityCapabilityProvider(context, logger)
-        capabilityRegistry.register(connectivityProvider)
-        capabilityRegistry.register(BluetoothCapabilityProvider(context, permissionManager, logger))
-        capabilityRegistry.register(StorageCapabilityProvider(context, permissionManager, logger))
-        capabilityRegistry.register(TelephonyCallLogCapabilityProvider(context, permissionManager, logger))
-        capabilityRegistry.register(ContactsAccountsCapabilityProvider(context, permissionManager, logger))
-        capabilityRegistry.register(SmsCapabilityProvider(context, permissionManager, logger))
-
-        // These two open real sockets, so they are registered and their actions are advertised.
-        //
-        // SftpServerCapabilityProvider is deliberately not registered: it sets a boolean and logs
-        // "SFTP daemon initialized" without opening anything. Advertising it would tell a caller a
-        // server is running when there is nothing to connect to. Until it has a real daemon it
-        // stays bare, and a test says so.
-        capabilityRegistry.register(FileServerCapabilityProvider(context, connectivityProvider, logger))
-        capabilityRegistry.register(NearbyChatCapabilityProvider(context, deviceSigner, connectivityProvider, logger))
 
         // Give any capability that declares a tile one. Read now and on every status refresh, so
         // a tile showing "downloading 2 files" is true rather than true when it was first drawn.
@@ -483,6 +513,9 @@ class PlatformContainer(val context: Context) {
             "Background work table ${if (CapabilityWorkWorker.taskRegistry != null) "published" else "UNAVAILABLE"}"
         )
         registerBackgroundTasks()
+
+        runtimeReady = true
+        logger.i("PlatformContainer", "Android Star Base Platform runtime ready.")
 
         logger.i("PlatformContainer", "Android Star Base Platform initialized with ${capabilityRegistry.getAllStatuses().size} capabilities.")
     }

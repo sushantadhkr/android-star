@@ -43,9 +43,13 @@ class WiredCapabilitiesTest {
     fun setUp() {
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
         container = PlatformContainer(ctx)
-        // Registration happens in the container's bootstrap, so without this every action answers
-        // 409 and the test would prove nothing about the handlers.
+        // Declaration happens in the bootstrap, but the running platform — routes, background task
+        // table, timers — is brought up only when something needs it, so that a process started
+        // for one notification costs almost nothing. These tests exercise the running platform, so
+        // they are that something. A test that wants the cheap path builds its own container and
+        // says why.
         container.initialize()
+        container.ensurePlatformRuntime()
         registry = container.capabilityRegistry
         actions = CapabilityActions(registry, PlatformLogger())
     }
@@ -1070,5 +1074,60 @@ class WiredCapabilitiesTest {
             "a very large image must be scaled to fit the detector's buffer, got $size",
             size.first <= 480 && size.second <= 480 && size.first > 0
         )
+    }
+
+    /**
+     * A process started only to deliver a notification must do almost nothing.
+     *
+     * Android restarts the app for every notification once notification access is granted, and an
+     * eager boot made each one cost a network callback, two timers, a widget redraw and a periodic
+     * job — 262 ms of measured CPU to hand over a string. This is the guard on that.
+     *
+     * The host is deliberately NOT started here, which is exactly the case under test: with the
+     * host off, nothing should reach for the runtime tier.
+     */
+    @Test
+    fun declaringCapabilitiesDoesNotBringUpTheRunningPlatform() {
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+        val container = PlatformContainer(ctx)
+
+        container.initialize()
+
+        val routes = container.embeddedServer.routes()
+        assertTrue(
+            "the API surface must not be registered until something needs the platform, " +
+                "but these routes appeared: $routes",
+            routes.isEmpty()
+        )
+    }
+
+    @Test
+    fun askingForACapabilityBuildsItAndNothingElseDoes() {
+        val registry = PlatformCapabilityRegistry()
+        registry.declare(CapabilityType.BATTERY_POWER) { BatteryPowerCapabilityProvider2() }
+        assertEquals("the registry should know about the declaration", 1, registry.declaredCount())
+
+        // Declaring must not have built it, or a notification would still cost a construction.
+        assertTrue(
+            "asking whether a capability is registered must not build it",
+            registry.isRegistered(CapabilityType.BATTERY_POWER)
+        )
+
+        val provider = registry.getProvider<com.personal.base.core.capability.CapabilityProvider>(
+            CapabilityType.BATTERY_POWER
+        )
+        assertTrue("the provider must build on first use", provider != null)
+        assertEquals("it must be the same instance on every use", provider, registry.getProvider(
+            com.personal.base.core.capability.CapabilityType.BATTERY_POWER
+        ))
+    }
+
+    /** A stand-in provider: the test is about laziness, not about batteries. */
+    private class BatteryPowerCapabilityProvider2 :
+        com.personal.base.core.capability.CapabilityProvider {
+        override val type = CapabilityType.BATTERY_POWER
+        override fun checkStatus() =
+            com.personal.base.core.capability.CapabilityStatus.Available
+        override fun release() {}
     }
 }

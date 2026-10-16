@@ -118,6 +118,8 @@ class PlatformForegroundService : Service() {
                 // implement AppServer install their routes onto it, and the App manager is told
                 // where they live so a newly-started App can publish immediately.
                 val container = app?.container
+                // Serving is the other reason the runtime exists, so the host brings it up itself.
+                container?.ensurePlatformRuntime()
                 container?.embeddedServer?.let { server ->
                     server.start()
                     container.appManager.server = server
