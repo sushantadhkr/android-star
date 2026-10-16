@@ -24,6 +24,8 @@ import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.NotificationsActive
@@ -80,8 +82,12 @@ fun SettingsScreen(
     val ignoringOptimisations = container.wakeLockManager.isIgnoringBatteryOptimizations
     val keepCpuAwake = currentConfig.keepCpuAwakeWhileHostRuns
 
-    // Collapsed by default, and only ever seen once the lock is on.
-    var lockSectionExpanded by remember { mutableStateOf(false) }
+    // The "Device Lock" timing card folds shut by default, and is only shown once the lock is on.
+    var lockTimingExpanded by remember { mutableStateOf(false) }
+
+    // Hoisted because two cards need it: the Device Lock card above decides whether to show
+    // itself, and the biometric card below renders its state.
+    val isBiometricLockEnabled by container.biometricProvider.isLockEnabled.collectAsState()
     val bgStatus by container.backgroundManager.status.collectAsState()
     val channels by container.notificationChannelManager.channelsFlow.collectAsState()
     val apps by container.appManager.apps.collectAsState()
@@ -102,7 +108,7 @@ fun SettingsScreen(
 
         // The token that guards the HTTP surface. Shown so it can be shared, and rotatable so it can be
         // replaced if it ever leaks.
-        ApiTokenCard(container.apiTokenStore)
+        ApiTokenCard(container.apiTokenStore, container.biometricProvider)
 
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -159,40 +165,63 @@ fun SettingsScreen(
             }
         }
 
-        // 1. Foreground Service Configuration
+        // 1. Device Lock timing.
+        //
+        // Only shown once the lock is switched on, and collapsed by default when it appears: a
+        // "Lock after" choice is meaningless to someone who has not enabled the lock, and six radio
+        // buttons sitting at the top of Settings is the first thing anyone sees.
+        if (isBiometricLockEnabled) {
         OutlinedCard(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { lockTimingExpanded = !lockTimingExpanded },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Icon(Icons.Default.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Device Lock",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Device Lock",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = if (lockTimingExpanded) {
+                                "A pinned platform surface. No app can disable it."
+                            } else {
+                                "Tap to choose when it locks"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Icon(
+                        if (lockTimingExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "A pinned platform surface. No app can disable it.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = "Lock after",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                LockTimeout.entries.forEach { option ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(
-                            selected = lockTimeout == option,
-                            onClick = { container.deviceLockGate.setTimeout(option) }
-                        )
-                        Text(option.label, style = MaterialTheme.typography.bodyMedium)
+                if (lockTimingExpanded) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "Lock after",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    LockTimeout.entries.forEach { option ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = lockTimeout == option,
+                                onClick = { container.deviceLockGate.setTimeout(option) }
+                            )
+                            Text(option.label, style = MaterialTheme.typography.bodyMedium)
+                        }
                     }
                 }
             }
+        }
         }
 
         // 2. Foreground Service Configuration
@@ -459,12 +488,11 @@ fun SettingsScreen(
 
         // 2. Biometric & Device Security Gate.
         //
-        // Shown only once the user has turned it on. A lock nobody has enabled is a wall of text
-        // sitting between settings people came to read, and the explanation is one tap away for
-        // the person who does want it.
-        val isBiometricLockEnabled by container.biometricProvider.isLockEnabled.collectAsState()
-        if (isBiometricLockEnabled) {
-            OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+        // The master toggle stays on screen whatever its state, because a setting you cannot see is
+        // a setting you cannot turn off. What folds away is the inner "Device Lock" group: the
+        // description and the two buttons, collapsed by default, appearing only once the lock is
+        // actually on. Otherwise every settings page is a wall of text about a lock nobody uses.
+        OutlinedCard(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -496,23 +524,19 @@ fun SettingsScreen(
                     )
                 }
 
-                if (!lockSectionExpanded) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Locks the platform behind your device's biometric sensor or " +
-                                "secure lock screen. Tap to show more.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.clickable { lockSectionExpanded = true }
-                    )
-                } else {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Locks the entire platform behind your device's biometric sensor " +
-                                "or secure lock screen (PIN, Pattern, Password).",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = if (isBiometricLockEnabled) {
+                        "Locks the platform behind your device's biometric sensor or secure lock " +
+                                "screen. Tap \"Device Lock\" above to choose when it locks."
+                    } else {
+                        "Off. The platform opens without asking for anything."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                if (isBiometricLockEnabled) {
                     Spacer(modifier = Modifier.height(10.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
@@ -524,13 +548,10 @@ fun SettingsScreen(
                             Text("Lock Platform Now")
                         }
                         OutlinedButton(
-                            onClick = {
-                                container.biometricProvider.setLockEnabled(false)
-                            },
+                            onClick = { container.biometricProvider.setLockEnabled(false) },
                             modifier = Modifier.weight(1f)
                         ) { Text("Turn off") }
                     }
-                }
                 }
             }
         }

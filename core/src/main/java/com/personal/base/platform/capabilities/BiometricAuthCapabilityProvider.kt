@@ -109,6 +109,43 @@ class BiometricAuthCapabilityProvider(
     }
 
     /**
+     * Confirms the person in front of the phone is its owner, without touching the app lock.
+     *
+     * Separate from [authenticate] because that one calls [unlockApp] as part of succeeding, which
+     * is right for getting into the app and wrong for guarding one secret inside it. This never
+     * changes any lock state; it only answers "was that you".
+     *
+     * The one rule it keeps: **it never succeeds without a prompt the user actually answered.** On
+     * a device with no screen lock there is nothing to ask, so it reports that rather than waving
+     * the request through — a guard that opens on old hardware is worse than no guard, because it
+     * looks like one.
+     */
+    fun confirmIdentity(
+        activity: Activity,
+        title: String,
+        subtitle: String,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        if (!isDeviceSecure) {
+            onError(
+                "This phone has no screen lock, so there is nothing to verify you against. " +
+                    "Set a PIN, pattern or password in Android settings first."
+            )
+            return
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            // Pre-P there is no BiometricPrompt and [authenticate] would have waved this through
+            // without asking. Refusing is the honest answer for a secret guard.
+            onError(
+                "This version of Android cannot verify who is asking, so the token stays hidden."
+            )
+            return
+        }
+        authenticate(activity, title, subtitle, onSuccess = onSuccess, onError = onError)
+    }
+
+    /**
      * Trigger native Android fingerprint / biometric or device credential (PIN/pattern/password) prompt.
      */
     fun authenticate(
