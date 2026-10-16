@@ -78,7 +78,7 @@ fun ApiTokenCard(tokenStore: ApiTokenStore) {
                 }
             }
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -104,18 +104,7 @@ fun ApiTokenCard(tokenStore: ApiTokenStore) {
                 )
             }
 
-            Spacer(Modifier.height(8.dp))
-
-            Text(
-                text = "Use it from a shell:\n" +
-                        "  curl -H \"Authorization: Bearer $token\" \\\n" +
-                        "    http://<phone>:8899/api/capabilities",
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
 
             if (confirmingRotate) {
                 Text(

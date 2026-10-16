@@ -71,7 +71,13 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     /** Bumped on every resume, so grants made in Settings elsewhere show up here on return. */
     var refreshCounter by remember { mutableStateOf(0) }
+
     val currentConfig by container.configRepository.config.collectAsState()
+
+    // Read at the top level because two cards below both need them: the host card warns about
+    // dozing, and the CPU card explains whether a wake lock would help.
+    val ignoringOptimisations = container.wakeLockManager.isIgnoringBatteryOptimizations
+    val keepCpuAwake = currentConfig.keepCpuAwakeWhileHostRuns
     val bgStatus by container.backgroundManager.status.collectAsState()
     val channels by container.notificationChannelManager.channelsFlow.collectAsState()
     val apps by container.appManager.apps.collectAsState()
@@ -226,8 +232,7 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "Keeps the platform running after you leave the app, holding a " +
-                            "permanent notification so Android does not kill it, and keeps the CPU " +
-                            "awake so the socket still answers once the screen is off. While it runs, " +
+                            "permanent notification so Android does not kill it. While it runs, " +
                             "your apps stay reachable over the network on port " +
                             "${container.embeddedServer.port} and background work keeps happening " +
                             "with the screen off. Turn it off and your phone becomes unreachable " +
@@ -267,6 +272,58 @@ fun SettingsScreen(
                         }) { Text("Open list") }
                     }
                 }
+            }
+        }
+
+        // Keeping the CPU awake is its own switch, not part of the host toggle.
+        //
+        // It used to be unconditional, justified by a comment claiming the phone "stops responding
+        // within a minute" of the screen going off. Measured on this device, that claim was wrong:
+        // with the screen off and no wake lock at all, the host answered 12 of 12 requests in about
+        // 20 ms. So it now defaults to off, costs nothing, and is offered for the one case that
+        // genuinely needs it — a phone whose battery-optimisation exemption has been revoked.
+        OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Keep CPU Awake",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = when {
+                                keepCpuAwake -> "On. The CPU is held awake while the host runs."
+                                !ignoringOptimisations ->
+                                    "Off, and Android may doze the host. Turn this on if the phone " +
+                                        "stops answering once the screen is dark."
+                                else -> "Off. The host relies on Android waking it, which is enough."
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Switch(
+                        checked = keepCpuAwake,
+                        onCheckedChange = { enabled ->
+                            container.configRepository.updateConfig {
+                                it.copy(keepCpuAwakeWhileHostRuns = enabled)
+                            }
+                        }
+                    )
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Turning this on stops Android suspending the CPU, so the phone never " +
+                            "sleeps. It is rarely needed and it costs battery all day.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
 

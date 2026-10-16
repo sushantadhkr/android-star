@@ -125,14 +125,25 @@ class PlatformForegroundService : Service() {
                     container.appManager.server = server
                     logger?.i("ForegroundService", "Hosting platform server on port ${server.port}")
 
-                    // Keep the CPU awake. A foreground service alone does not: Android suspends
-                    // the CPU once the device is idle, the socket survives, and nothing ever
-                    // answers a request again. Without this the host looks fine and the phone
-                    // stops responding within a minute of the screen going off.
+                    // Whether to hold the CPU awake is now the user's own switch, because it was
+                    // measured to be unnecessary: with the screen off the host answered 12 of 12
+                    // requests in about 20 ms without a lock. The code here used to claim the
+                    // phone "stops responding within a minute", and that claim was simply wrong on
+                    // a phone with its battery-optimisation exemption granted.
                     //
-                    // It costs battery, which is precisely why it belongs to the user's explicit
-                    // always-on switch and not to the app starting at all.
-                    container.wakeLockManager.acquireWakeLock()
+                    // It still earns its place where that exemption is missing, so it is offered
+                    // rather than deleted — and the card says which case you are in.
+                    if (container.configRepository.config.value.keepCpuAwakeWhileHostRuns) {
+                        container.wakeLockManager.acquireWakeLock()
+                        logger?.i("ForegroundService", "Holding a CPU wake lock as requested.")
+                    } else {
+                        logger?.i(
+                            "ForegroundService",
+                            "Not holding a CPU wake lock. Reachability relies on the " +
+                                "battery-optimisation exemption (" +
+                                "${container.wakeLockManager.isIgnoringBatteryOptimizations})."
+                        )
+                    }
 
                     // The watchdog was built for exactly this and nothing had ever registered with
                     // it, so it had been polling an empty map. If the socket ever closes, the phone

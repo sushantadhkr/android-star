@@ -16,6 +16,17 @@ data class PlatformConfig(
     val authSecretHmac: String = "base_secret_hmac_256",
     val backgroundSyncIntervalMinutes: Long = 15L,
     val isForegroundServiceEnabled: Boolean = true,
+
+    /**
+     * Whether the host holds a partial wake lock while it runs.
+     *
+     * Off by default, and measured: with the screen off the host answered 12 of 12 requests in
+     * about 20 ms without a wake lock at all, so the lock was buying nothing and costing the
+     * device its ability to suspend. It stays available because a phone whose battery-optimisation
+     * exemption has been revoked really will doze the host, and there the lock is the difference
+     * between answering and going quiet.
+     */
+    val keepCpuAwakeWhileHostRuns: Boolean = false,
     val requireSignedCommands: Boolean = true,
     val allowLocalSimulation: Boolean = true,
     val strictPermissionEnforcement: Boolean = true,
