@@ -13,11 +13,14 @@ import androidx.core.app.ServiceCompat
 import com.personal.base.MainActivity
 import com.personal.base.PersonalBaseApplication
 import com.personal.base.platform.capabilities.NotificationCapabilityProvider
+import com.personal.base.core.logging.PlatformLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
@@ -37,6 +40,11 @@ class PlatformForegroundService : Service() {
 
     private val serviceJob = Job()
     private val scope = CoroutineScope(Dispatchers.Default + serviceJob)
+
+    /** Follows the "Keep CPU Awake" switch. Cancelled with the host. */
+    private var wakeLockWatch: Job? = null
+
+    private var log: PlatformLogger? = null
 
     companion object {
         const val ACTION_START = "com.personal.base.action.START_SERVICE"
@@ -87,6 +95,7 @@ class PlatformForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val app = application as? PersonalBaseApplication
         val logger = app?.container?.logger
+        log = logger
 
         when (intent?.action) {
             ACTION_STOP -> {
@@ -125,7 +134,7 @@ class PlatformForegroundService : Service() {
                     container.appManager.server = server
                     logger?.i("ForegroundService", "Hosting platform server on port ${server.port}")
 
-                    // Whether to hold the CPU awake is now the user's own switch, because it was
+                    // Whether to hold the CPU awake is the user's own switch, because it was
                     // measured to be unnecessary: with the screen off the host answered 12 of 12
                     // requests in about 20 ms without a lock. The code here used to claim the
                     // phone "stops responding within a minute", and that claim was simply wrong on
@@ -133,17 +142,15 @@ class PlatformForegroundService : Service() {
                     //
                     // It still earns its place where that exemption is missing, so it is offered
                     // rather than deleted — and the card says which case you are in.
-                    if (container.configRepository.config.value.keepCpuAwakeWhileHostRuns) {
-                        container.wakeLockManager.acquireWakeLock()
-                        logger?.i("ForegroundService", "Holding a CPU wake lock as requested.")
-                    } else {
-                        logger?.i(
-                            "ForegroundService",
-                            "Not holding a CPU wake lock. Reachability relies on the " +
-                                "battery-optimisation exemption (" +
-                                "${container.wakeLockManager.isIgnoringBatteryOptimizations})."
-                        )
-                    }
+                    applyCpuWakeLock(
+                        container,
+                        container.configRepository.config.value.keepCpuAwakeWhileHostRuns
+                    )
+
+                    // Watch the switch rather than reading it once. Reading it at startup meant a
+                    // user could flip it in Settings, see no change at all, and have no way to
+                    // tell whether the switch worked or the app was simply ignoring it.
+                    watchCpuWakeLock(container)
 
                     // The watchdog was built for exactly this and nothing had ever registered with
                     // it, so it had been polling an empty map. If the socket ever closes, the phone
@@ -179,6 +186,39 @@ class PlatformForegroundService : Service() {
         }
 
         return START_STICKY
+    }
+
+    /**
+     * Puts the wake lock in the state the user asked for.
+     *
+     * Only acts when the state actually differs, so a repeated call neither re-acquires nor logs.
+     */
+    private fun applyCpuWakeLock(container: com.personal.base.di.PlatformContainer, wanted: Boolean) {
+        val held = container.wakeLockManager.isHeld
+        if (wanted == held) return
+
+        if (wanted) {
+            container.wakeLockManager.acquireWakeLock()
+            log?.i("ForegroundService", "Holding a CPU wake lock as requested.")
+        } else {
+            container.wakeLockManager.releaseWakeLock()
+            log?.i(
+                "ForegroundService",
+                "Released the CPU wake lock. Reachability relies on the battery-optimisation " +
+                    "exemption (${container.wakeLockManager.isIgnoringBatteryOptimizations})."
+            )
+        }
+    }
+
+    /** Follows the user's switch while the host runs, so flipping it takes effect at once. */
+    private fun watchCpuWakeLock(container: com.personal.base.di.PlatformContainer) {
+        wakeLockWatch?.cancel()
+        wakeLockWatch = scope.launch {
+            container.configRepository.config
+                .map { it.keepCpuAwakeWhileHostRuns }
+                .distinctUntilChanged()
+                .collect { wanted -> applyCpuWakeLock(container, wanted) }
+        }
     }
 
     private fun buildForegroundNotification(): Notification {

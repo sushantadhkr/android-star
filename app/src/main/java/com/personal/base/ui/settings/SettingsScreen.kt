@@ -2,6 +2,7 @@ package com.personal.base.ui.settings
 
 import android.widget.Toast
 import android.content.Intent
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -78,6 +79,9 @@ fun SettingsScreen(
     // dozing, and the CPU card explains whether a wake lock would help.
     val ignoringOptimisations = container.wakeLockManager.isIgnoringBatteryOptimizations
     val keepCpuAwake = currentConfig.keepCpuAwakeWhileHostRuns
+
+    // Collapsed by default, and only ever seen once the lock is on.
+    var lockSectionExpanded by remember { mutableStateOf(false) }
     val bgStatus by container.backgroundManager.status.collectAsState()
     val channels by container.notificationChannelManager.channelsFlow.collectAsState()
     val apps by container.appManager.apps.collectAsState()
@@ -453,9 +457,14 @@ fun SettingsScreen(
             }
         }
 
-        // 2. Biometric & Device Security Gate
+        // 2. Biometric & Device Security Gate.
+        //
+        // Shown only once the user has turned it on. A lock nobody has enabled is a wall of text
+        // sitting between settings people came to read, and the explanation is one tap away for
+        // the person who does want it.
         val isBiometricLockEnabled by container.biometricProvider.isLockEnabled.collectAsState()
-        OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+        if (isBiometricLockEnabled) {
+            OutlinedCard(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -487,23 +496,41 @@ fun SettingsScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Locks the entire platform behind your device's biometric sensor or secure lock screen (PIN, Pattern, Password).",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                if (isBiometricLockEnabled) {
+                if (!lockSectionExpanded) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Locks the platform behind your device's biometric sensor or " +
+                                "secure lock screen. Tap to show more.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.clickable { lockSectionExpanded = true }
+                    )
+                } else {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Locks the entire platform behind your device's biometric sensor " +
+                                "or secure lock screen (PIN, Pattern, Password).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     Spacer(modifier = Modifier.height(10.dp))
-                    Button(
-                        onClick = { container.biometricProvider.lockNow() },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Lock Platform Now")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = { container.biometricProvider.lockNow() },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Lock Platform Now")
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                container.biometricProvider.setLockEnabled(false)
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Turn off") }
                     }
+                }
                 }
             }
         }
