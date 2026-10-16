@@ -13,7 +13,7 @@ import com.personal.base.core.capability.CapabilityApi
 import com.personal.base.core.capability.CapabilityType
 import com.personal.base.core.capability.CapabilityCatalogue
 import com.personal.base.core.capability.CapabilityGate
-import com.personal.base.core.security.ApiTokenStore
+import com.personal.base.core.security.EncryptedApiTokenStore
 import com.personal.base.core.capability.PlatformCapabilityRegistry
 import com.personal.base.core.command.CommandValidator
 import com.personal.base.core.config.ConfigRepository
@@ -181,7 +181,7 @@ class PlatformContainer(val context: Context) {
     // Pinned Platform surface: master and per-capability control.
     val capabilityGate = CapabilityGate(context)
     val capabilityCatalogue = CapabilityCatalogue(capabilityRegistry, capabilityGate)
-    val apiTokenStore = ApiTokenStore(context)
+    val apiTokenStore = EncryptedApiTokenStore(context)
     val notificationActionLog = NotificationActionLog()
     val downloadLocation = DownloadLocationStore(context)
     val widgetRegistry = WidgetRegistry()

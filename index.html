@@ -257,7 +257,11 @@ const $ = (id) => document.getElementById(id);
 const baseEl = $("base"), tokenEl = $("token"), statusEl = $("status"), dotEl = $("dot");
 
 baseEl.value = localStorage.getItem("star.base") || DEFAULTS.base;
-tokenEl.value = localStorage.getItem("star.token") || DEFAULTS.token;
+// sessionStorage, never localStorage. The token is full control of this phone, and localStorage
+// outlives the tab, the browser and the person using the machine — so the next person to open the
+// console would silently inherit it. sessionStorage dies with the tab, which is the right lifetime
+// for a credential you paste in to run a few commands.
+tokenEl.value = sessionStorage.getItem("star.token") || DEFAULTS.token;
 
 const base = () => baseEl.value.trim().replace(/\/+$/, "");
 const token = () => tokenEl.value.trim();
@@ -314,7 +318,7 @@ function entryFor(id) { return (catalogue.capabilities || []).find((c) => c.id =
 // ---------------------------------------------------------------------------
 async function connect() {
   localStorage.setItem("star.base", baseEl.value.trim());
-  localStorage.setItem("star.token", token());
+  sessionStorage.setItem("star.token", token());
 
   setStatus("connecting…", "warn");
   $("connect").disabled = true;

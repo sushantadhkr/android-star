@@ -52,7 +52,60 @@ class WiredCapabilitiesTest {
         container.ensurePlatformRuntime()
         registry = container.capabilityRegistry
         actions = CapabilityActions(registry, PlatformLogger())
+        grantNotificationPermission()
+        clearTheNotificationShade()
     }
+
+    /**
+     * Gives the app POST_NOTIFICATIONS so the notification tests actually run.
+     *
+     * They used to check the permission and quietly return when it was off, on the reasonable
+     * grounds that posting is a no-op without it. That was wrong: `pm clear` and a fresh install
+     * both drop the grant, so both notification tests would report success while asserting nothing
+     * at all — and the "pass" looked identical to a real one. Granting it here means the tests say
+     * what they mean, or fail honestly if the grant cannot be had.
+     */
+    private fun grantNotificationPermission() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val granted = runCatching {
+            instrumentation.uiAutomation.grantRuntimePermission(
+                instrumentation.targetContext.packageName,
+                "android.permission.POST_NOTIFICATIONS"
+            )
+        }
+        val enabled = androidx.core.app.NotificationManagerCompat
+            .from(instrumentation.targetContext).areNotificationsEnabled()
+        if (!enabled) {
+            throw AssertionError(
+                "the notification tests cannot run without POST_NOTIFICATIONS, and it could not be " +
+                    "granted (${granted.exceptionOrNull()?.message ?: "no error reported"}). Fix the " +
+                    "grant rather than letting these tests pass without asserting anything."
+            )
+        }
+    }
+
+    /**
+     * Empties the shade so a notification test starts from a known state.
+     *
+     * Finished downloads leave their notification behind — `autoCancel` means "goes away when
+     * tapped", not "goes away when finished" — so the shade grows by a few entries every run and
+     * never shrinks. By the twelfth run the app was holding 51, and `activeNotifications` had
+     * stopped being a complete view: the download under test was posted and present, but came back
+     * absent from the array, so the test reported a notification bug about a notification that
+     * existed. Depending on whatever the last dozen runs left behind is not a test.
+     */
+    private fun clearTheNotificationShade() {
+        androidx.core.app.NotificationManagerCompat
+            .from(InstrumentationRegistry.getInstrumentation().targetContext)
+            .cancelAll()
+    }
+
+    /**
+     * A real, stable file that reports a length, so progress is a percentage rather than a spinner.
+     * The notification is replaced on completion rather than withdrawn, so the tests can look for it
+     * either side of the finish — this only has to exist and be big enough to not vanish instantly.
+     */
+    private val SLOW_DOWNLOAD_URL = "https://proof.ovh.net/files/1Mb.dat"
 
     /** Stops a capability without caring whether it was already stopped. */
     /** Waits, briefly, for the accessibility service to bind to this process. */
@@ -94,6 +147,43 @@ class WiredCapabilitiesTest {
             "$capability.$action returned ${response.status}: ${response.body}",
             response.status in 200..299
         )
+    }
+
+    /**
+     * Starts a download and returns the id it was given.
+     *
+     * The id has to come from the response rather than from the provider's history, because those
+     * are not the same thing. History is a shared, ordered list that any other download in the
+     * process can extend, so asking it for "the newest" silently returns someone else's record the
+     * moment two things run at once — and the test then reports a notification bug about a download
+     * it never started. The response is the one answer that can only be about this call.
+     */
+    private fun fetchDownloadId(fileName: String): String {
+        val response = actions.invoke(
+            CapabilityType.DOWNLOAD_MANAGER,
+            "fetch",
+            JsonObject(
+                buildMap {
+                    put("capability", JsonPrimitive("DOWNLOAD_MANAGER"))
+                    put("action", JsonPrimitive("fetch"))
+                    put("url", JsonPrimitive(SLOW_DOWNLOAD_URL))
+                    put("fileName", JsonPrimitive(fileName))
+                }
+            )
+        )
+        assertTrue(
+            "DOWNLOAD_MANAGER.fetch returned ${response.status}: ${response.body}",
+            response.status in 200..299
+        )
+        val id = runCatching {
+            (kotlinx.serialization.json.Json.parseToJsonElement(response.body)
+                as? JsonObject)?.get("id")?.let { (it as? JsonPrimitive)?.content }
+        }.getOrNull()
+        assertTrue(
+            "a 2xx fetch must name the download it started, got: ${response.body}",
+            !id.isNullOrBlank()
+        )
+        return id!!
     }
 
     @Test
@@ -318,9 +408,8 @@ class WiredCapabilitiesTest {
 
     @Test
     fun aDownloadPostsAProgressNotification() {
-        ok("DOWNLOAD_MANAGER", "fetch", "url" to "https://example.com", "fileName" to "notified.bin")
+        val id = fetchDownloadId("notified.bin")
 
-        val container = this.container
         val provider = container.capabilityRegistry
             .getProviderByClass(MediaDownloadCapabilityProvider::class.java)
         assertTrue("the media download provider must be registered", provider != null)
@@ -328,18 +417,12 @@ class WiredCapabilitiesTest {
         val nm = InstrumentationRegistry.getInstrumentation().targetContext
             .getSystemService(android.content.Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
 
-        // Posting is a no-op without POST_NOTIFICATIONS, so check before asserting rather than
-        // reporting a failure that is really about the test environment.
-        val notificationsOn = androidx.core.app.NotificationManagerCompat
-            .from(InstrumentationRegistry.getInstrumentation().targetContext)
-            .areNotificationsEnabled()
-        if (!notificationsOn) return
-
+        // POST_NOTIFICATIONS is granted in setUp, so there is nothing to skip here.
         // Posted, not just scheduled: the notification must be visible while the job runs.
         var seen = false
         val deadline = System.currentTimeMillis() + 10_000
         while (System.currentTimeMillis() < deadline && !seen) {
-            seen = nm.activeNotifications.any { it.id == provider!!.recent(1).first().id.hashCode() }
+            seen = nm.activeNotifications.any { it.id == id.hashCode() }
             if (!seen) Thread.sleep(150)
         }
         assertTrue("a download must post a progress notification", seen)
@@ -347,7 +430,7 @@ class WiredCapabilitiesTest {
         val deadline2 = System.currentTimeMillis() + 30_000
         var done: MediaDownload? = null
         while (System.currentTimeMillis() < deadline2) {
-            val d = provider!!.get(provider.recent(1).first().id)
+            val d = provider!!.get(id)
             if (d != null && d.status in listOf("complete", "failed")) { done = d; break }
             Thread.sleep(250)
         }
@@ -417,13 +500,8 @@ class WiredCapabilitiesTest {
     @Test
     fun theProgressNotificationCarriesWorkingControls() {
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
-        val notificationsOn = androidx.core.app.NotificationManagerCompat.from(ctx).areNotificationsEnabled()
-        if (!notificationsOn) return
 
-        ok("DOWNLOAD_MANAGER", "fetch", "url" to "https://example.com", "fileName" to "controlled.bin")
-        val provider = container.capabilityRegistry
-            .getProviderByClass(MediaDownloadCapabilityProvider::class.java)!!
-        val id = provider.recent(1).first().id
+        val id = fetchDownloadId("controlled.bin")
 
         val nm = ctx.getSystemService(android.content.Context.NOTIFICATION_SERVICE)
             as android.app.NotificationManager

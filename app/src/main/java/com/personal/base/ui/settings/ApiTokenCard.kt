@@ -39,7 +39,7 @@ import androidx.compose.ui.unit.dp
 import android.app.Activity
 import android.content.ContextWrapper
 import android.widget.Toast
-import com.personal.base.core.security.ApiTokenStore
+import com.personal.base.core.security.ApiTokenStoreContract
 import com.personal.base.platform.capabilities.BiometricAuthCapabilityProvider
 
 /**
@@ -49,7 +49,7 @@ import com.personal.base.platform.capabilities.BiometricAuthCapabilityProvider
  */
 @Composable
 fun ApiTokenCard(
-    tokenStore: ApiTokenStore,
+    tokenStore: ApiTokenStoreContract,
     biometrics: BiometricAuthCapabilityProvider
 ) {
     val context = LocalContext.current

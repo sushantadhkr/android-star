@@ -54,6 +54,14 @@ global.document = {
 };
 global.window = { scrollTo() {} };
 global.localStorage = { getItem: () => null, setItem: () => {} };
+// Records what the console tries to persist, so a check can assert on it. The harness only knew
+// about localStorage, so the page asking for sessionStorage threw before any check ran.
+global.persisted = { local: [], session: [] };
+global.sessionStorage = {
+  getItem: () => null,
+  setItem: (k, v) => global.persisted.session.push([k, v]),
+};
+global.localStorage.setItem = (k, v) => global.persisted.local.push([k, v]);
 global.fetch = async () => { throw new Error("no network in this harness"); };
 global.location = { protocol: "http:" };
 
@@ -64,7 +72,7 @@ function boot(catalogue, selected) {
     .replace("let catalogue = null;", "let catalogue = __seed.catalogue;")
     .replace("let selected = null;", "let selected = __seed.selected;")
     .replace("let tab = \"overview\";", "let tab = __seed.tab || \"overview\";") +
-    "\n; return { renderAll, renderOverview, renderCapabilities, renderApps, renderDocs, capCard, actionCard, renderOffline, showTab, esc };";
+    "\n; return { renderAll, renderOverview, renderCapabilities, renderApps, renderDocs, capCard, actionCard, renderOffline, showTab, esc, connect };";
   return new Function("__seed", src)({ docs, catalogue, selected, tab: "overview" });
 }
 
@@ -249,6 +257,24 @@ console.log("\n13. the served asset cannot drift from the source");
   const ignored = require("child_process")
     .spawnSync("git", ["check-ignore", "-q", asset], { cwd: root }).status === 0;
   check("the generated copy is gitignored so only one is tracked", ignored);
+}
+
+console.log("\n14. the api token is never left behind on the machine");
+{
+  // Saving the console settings is what persists the token. It must land in sessionStorage, which
+  // dies with the tab, and never in localStorage, which outlives the tab, the browser and the user.
+  // Connecting is what persists the settings, and it is also reachable without a network.
+  els.token.value = "a".repeat(64);
+  els.base.value = "http://127.0.0.1:8899";
+  page.connect();
+  const localKeys = global.persisted.local.map(([k]) => k);
+  const sessionKeys = global.persisted.session.map(([k]) => k);
+  check("the token is not written to localStorage", !localKeys.includes("star.token"),
+    "found: " + localKeys.join(", "));
+  check("the token is written to sessionStorage instead", sessionKeys.includes("star.token"),
+    "found: " + sessionKeys.join(", "));
+  const stored = (global.persisted.session.find(([k]) => k === "star.token") || [])[1];
+  check("the persisted token is the real one, not a blank", typeof stored === "string" && stored.length > 10);
 }
 
 console.log("\n" + (failures ? failures + " FAILURE(S)" : "all checks passed"));

@@ -36,7 +36,7 @@ import com.personal.base.core.platform.EmbeddedServer
  * from "what can this do" to "how do I drive it" without leaving the page.
  */
 @Composable
-fun ApiReferenceCard(tokenStore: com.personal.base.core.security.ApiTokenStore) {
+fun ApiReferenceCard(tokenStore: com.personal.base.core.security.ApiTokenStoreContract) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     val port = remember { EmbeddedServer.DEFAULT_PORT }
     val token = remember { tokenStore.token() }
