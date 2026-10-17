@@ -186,6 +186,69 @@ class CapabilityApiTest {
         assertTrue(catalogue.entries.value.any { it.type == CapabilityType.CAMERA })
     }
 
+    // ---- pulling a produced file ---------------------------------------
+
+    /** Pulls and returns what went onto the wire, so the response can be read as bytes. */
+    private fun pull(query: String): String {
+        val out = java.io.ByteArrayOutputStream()
+        val handled = api.handlePull(
+            ServerRequest("GET", FILE_PULL_ROUTE, "", emptyMap(), "$FILE_PULL_ROUTE?$query"),
+            out
+        )
+        assertTrue("the pull route must always answer, never decline", handled)
+        return out.toByteArray().toString(Charsets.ISO_8859_1)
+    }
+
+    private fun statusLine(response: String) = response.lineSequence().first()
+
+    @Test
+    fun `a pull for a disabled capability is refused, not streamed`() {
+        // The whole point of the switch is that a capability you turned off cannot be reached by
+        // any route. A file route that skipped the gate would quietly undo that.
+        gate.setEnabled(CapabilityType.CAMERA, false)
+        assertTrue(statusLine(pull("capability=CAMERA&id=cap_1")).contains("403"))
+    }
+
+    @Test
+    fun `a pull with the master switch off is refused`() {
+        gate.setGloballyEnabled(false)
+        assertTrue(statusLine(pull("capability=DOWNLOAD_MANAGER&id=dl_1")).contains("403"))
+    }
+
+    @Test
+    fun `a pull without a capability or id is a 400 not a guess`() {
+        assertTrue(statusLine(pull("id=cap_1")).contains("400"))
+        assertTrue(statusLine(pull("capability=CAMERA")).contains("400"))
+    }
+
+    @Test
+    fun `a pull naming an unknown capability is a 404`() {
+        assertTrue(statusLine(pull("capability=NOT_REAL&id=x")).contains("404"))
+    }
+
+    @Test
+    fun `a pull from a capability that produces no files says so`() {
+        // DEVICE_ACTIONS produces no files. Inventing a 200 here would be a fake success.
+        assertTrue(statusLine(pull("capability=DEVICE_ACTIONS&id=x")).contains("404"))
+    }
+
+    @Test
+    fun `a pull for an id nothing owns is a 404 rather than an empty file`() {
+        // The failure that matters: an empty body with a 200 reads to a client as "here is your
+        // file, it is zero bytes", which is worse than saying it is not there.
+        val response = pull("capability=CAMERA&id=cap_does_not_exist")
+        assertTrue(statusLine(response).contains("404"))
+        assertTrue(response.contains("No file for id"))
+    }
+
+    @Test
+    fun `a pull never accepts a path`() {
+        // The only parameters are a capability and an id. There is no path parameter for a caller
+        // to aim at the device's filesystem with, which is why traversal has nothing to work on.
+        val withPath = pull("capability=CAMERA&path=/data/data/com.personal.base")
+        assertTrue(statusLine(withPath).contains("400"))
+    }
+
     private companion object {
         const val TOKEN = "test-token"
     }

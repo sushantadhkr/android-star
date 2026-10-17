@@ -37,7 +37,18 @@ data class MediaDownload(
     val totalBytes: Long,
     val savedPath: String?,
     val error: String?,
-    val startedAt: Long
+    val startedAt: Long,
+    /**
+     * Where the bytes actually went, as a content:// uri.
+     *
+     * [savedPath] is what a person sees — "Downloads/Android Star/clip.mp4" — and it is only that:
+     * under scoped storage the file is not readable by path, so handing the path to a client that
+     * then tries to open it fails. This is the handle the platform can actually resolve, and it is
+     * kept off the JSON surface deliberately, because a uri is device-local and meaningless
+     * anywhere else.
+     */
+    val savedUri: String? = null,
+    val contentType: String? = null
 ) {
     val percent: Int
         get() = if (totalBytes > 0) ((bytesDownloaded * 100) / totalBytes).toInt().coerceIn(0, 100) else 0
@@ -235,6 +246,9 @@ class MediaDownloadCapabilityProvider(
             }
 
             finish(uri)
+            // Held before uri is dropped: finish() only clears the pending flag, so this is the
+            // last moment the write handle is still needed, and the only moment the uri is here.
+            val saved = uri
             uri = null
 
             update(id) {
@@ -243,7 +257,9 @@ class MediaDownloadCapabilityProvider(
                     bytesDownloaded = written,
                     totalBytes = if (declared > 0) declared else written,
                     savedPath = pathFor(fileName),
-                    error = null
+                    error = null,
+                    savedUri = saved.toString(),
+                    contentType = resolvedType
                 )
             }
             logger.i("MediaDownload", "Saved $fileName ($written bytes) to Downloads")
@@ -387,6 +403,22 @@ class MediaDownloadCapabilityProvider(
             "failed" -> notifier.failed(d.id, d.fileName, d.error ?: "Failed", retry)
             "cancelled" -> notifier.complete(d.id, d.fileName, "Cancelled", listOf(retry))
         }
+    }
+
+    /**
+     * Opens a finished download's bytes, or null if there is nothing to open.
+     *
+     * Only a completed download has anything behind it. A uri is also the only way to read the file
+     * at all — the recorded path is for people, not for opening — so this goes through the content
+     * resolver rather than trying to build a File.
+     *
+     * The caller closes it.
+     */
+    fun openDownload(id: String): java.io.InputStream? {
+        val download = downloads[id] ?: return null
+        if (download.status != "complete") return null
+        val uri = download.savedUri?.let { runCatching { Uri.parse(it) }.getOrNull() } ?: return null
+        return runCatching { context.contentResolver.openInputStream(uri) }.getOrNull()
     }
 
     private fun human(bytes: Long): String = when {

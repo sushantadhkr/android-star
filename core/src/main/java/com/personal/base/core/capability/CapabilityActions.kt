@@ -417,6 +417,13 @@ class CapabilityActions(
                     ParamDoc("id", "string", true, "The download id to cancel", "dl_m0abc_0")
                 ), """{"capability":"DOWNLOAD_MANAGER","action":"cancel","id":"dl_m0abc_0"}""",
                     """{"cancelled":true}""", handler = { p -> mediaCancel(p) }),
+                ActionSpec("pull", "Where a finished download's bytes can be fetched from", listOf(
+                    ParamDoc("id", "string", true, "The download id to pull", "dl_m0abc_0")
+                ), """{"capability":"DOWNLOAD_MANAGER","action":"pull","id":"dl_m0abc_0"}""",
+                    """{"id":"dl_m0abc_0","status":"complete","ready":true,"fileName":"clip.mp4",""" +
+                        """"bytes":12582912,"contentType":"video/mp4",""" +
+                        """"pullUrl":"/api/files/pull?capability=DOWNLOAD_MANAGER&id=dl_m0abc_0"}""",
+                    handler = { p -> downloadPull(p) }),
                 ActionSpec(
                     "retry",
                     "Start a download again from the same URL",
@@ -857,11 +864,25 @@ class CapabilityActions(
                 ActionSpec("cameras", "List the cameras this device has", emptyList(),
                     """{"capability":"CAMERA","action":"cameras"}""",
                     """{"cameras":2,"ids":["0","1"]}""", handler = { p -> cameraList(p) }),
-                ActionSpec("capture", "Take a photo and save it as JPEG", listOf(
+                ActionSpec("capture", "Take a photo and address it by id", listOf(
                     ParamDoc("cameraId", "string", false, "Which camera; defaults to the rear one", "0"),
                     ParamDoc("maxWidth", "integer", false, "Cap the output width in pixels", "1920")
                 ), """{"capability":"CAMERA","action":"capture"}""",
-                    """{"file":"/data/.../capture-1752.jpg","bytes":482913}""", handler = { p -> cameraCapture(p) }),
+                    """{"id":"cap_m0abc_1","fileName":"cap_m0abc_1.jpg","bytes":482913,""" +
+                        """"takenAt":1752000000000,"pullUrl":"/api/files/pull?capability=CAMERA&id=cap_m0abc_1"}""",
+                    handler = { p -> cameraCapture(p) }),
+                ActionSpec("captures", "List the photos taken this session, newest first", listOf(
+                    ParamDoc("limit", "integer", false, "How many to list", "20")
+                ), """{"capability":"CAMERA","action":"captures"}""",
+                    """{"count":2,"captures":[{"id":"cap_m0abc_1","fileName":"cap_m0abc_1.jpg","bytes":482913,""" +
+                        """"takenAt":1752000000000,"pullUrl":"/api/files/pull?capability=CAMERA&id=cap_m0abc_1"}]}""",
+                    handler = { p -> cameraCaptures(p) }),
+                ActionSpec("pull", "Where a photo's bytes can be fetched from", listOf(
+                    ParamDoc("id", "string", true, "The id capture reported", "cap_m0abc_1")
+                ), """{"capability":"CAMERA","action":"pull","id":"cap_m0abc_1"}""",
+                    """{"id":"cap_m0abc_1","fileName":"cap_m0abc_1.jpg","bytes":482913,""" +
+                        """"contentType":"image/jpeg","pullUrl":"/api/files/pull?capability=CAMERA&id=cap_m0abc_1"}""",
+                    handler = { p -> cameraPull(p) }),
                 ActionSpec("start", "Begin recording video", listOf(
                     ParamDoc("cameraId", "string", false, "Which camera; defaults to the rear one", "0")
                 ), """{"capability":"CAMERA","action":"start"}""",
@@ -2556,16 +2577,114 @@ class CapabilityActions(
     private fun cameraCapture(p: JsonObject): ServerResponse {
         val provider = provider<CameraMicCapabilityProvider>(CapabilityType.CAMERA)
             ?: return unsupported(CapabilityType.CAMERA)
-        val file = provider.captureImage(p.string("cameraId"))
+        val cameraId = p.string("cameraId")
+        val file = provider.captureImage(cameraId, p.int("maxWidth") ?: 1920)
             ?: return ServerResponse(
                 500, "application/json",
                 """{"error":"Capture failed","hint":"Check CAMERA permission and that nothing else is using the camera"}"""
             )
+
+        // The capture is reported by the id the platform minted, not by the path. A path under
+        // app-private storage is true only on this device and means nothing to the caller, so
+        // sending it as the headline result invites them to believe they can open it.
+        val capture = provider.recentCaptures(1).firstOrNull()
         return ServerResponse.json(
             buildJsonObject {
-                put("file", file.absolutePath)
-                put("bytes", file.length())
+                capture?.let {
+                    put("id", it.id)
+                    put("fileName", it.fileName)
+                    put("bytes", it.bytes)
+                    put("takenAt", it.takenAt)
+                    put("pullUrl", "$FILE_PULL_ROUTE?capability=CAMERA&id=${it.id}")
+                } ?: run {
+                    // No record means the capture wrote a file we did not keep a handle on. Say
+                    // so rather than reporting success with nothing to show for it.
+                    put("error", "Captured, but the file could not be addressed")
+                    put("file", file.absolutePath)
+                    put("bytes", file.length())
+                }
             }.toString()
+        )
+    }
+
+    /**
+     * Lists the stills this camera has taken, newest first.
+     *
+     * Ids, not paths, for the reason [cameraCapture] gives.
+     */
+    private fun cameraCaptures(p: JsonObject): ServerResponse {
+        val provider = provider<CameraMicCapabilityProvider>(CapabilityType.CAMERA)
+            ?: return unsupported(CapabilityType.CAMERA)
+        val captures = provider.recentCaptures(p.int("limit") ?: 20)
+        return ServerResponse.json(
+            buildJsonObject {
+                put("count", captures.size)
+                put("captures", buildJsonArray {
+                    captures.forEach {
+                        add(
+                            buildJsonObject {
+                                put("id", it.id)
+                                put("fileName", it.fileName)
+                                put("bytes", it.bytes)
+                                put("takenAt", it.takenAt)
+                                put("pullUrl", "$FILE_PULL_ROUTE?capability=CAMERA&id=${it.id}")
+                            }
+                        )
+                    }
+                })
+            }.toString()
+        )
+    }
+
+    /**
+     * Reports where a capture's bytes can be fetched from, without sending them.
+     *
+     * The bytes themselves go over [FILE_PULL_ROUTE]. Splitting it this way keeps the answer to
+     * "what have you got" ordinary JSON that any client can read, and leaves exactly one endpoint
+     * that streams.
+     */
+    private fun cameraPull(p: JsonObject): ServerResponse {
+        val provider = provider<CameraMicCapabilityProvider>(CapabilityType.CAMERA)
+            ?: return unsupported(CapabilityType.CAMERA)
+        val id = p.string("id") ?: return badRequest("Missing 'id'")
+
+        val capture = provider.recentCaptures(Int.MAX_VALUE).firstOrNull { it.id == id }
+            ?: return notFound("No capture with id '$id'. Use CAMERA.captures to list them.")
+        if (provider.captureFile(id) == null) {
+            return notFound("Capture '$id' is no longer on the device.")
+        }
+        return ServerResponse.json(
+            """{"id":"$id","fileName":"${capture.fileName}","bytes":${capture.bytes},""" +
+                """"contentType":"image/jpeg","pullUrl":"$FILE_PULL_ROUTE?capability=CAMERA&id=$id"}"""
+        )
+    }
+
+    /**
+     * The same deal for a finished download: where its bytes are, addressed by download id.
+     */
+    private fun downloadPull(p: JsonObject): ServerResponse {
+        val provider = provider<MediaDownloadCapabilityProvider>(CapabilityType.DOWNLOAD_MANAGER)
+            ?: return unsupported(CapabilityType.DOWNLOAD_MANAGER)
+        val id = p.string("id") ?: return badRequest("Missing 'id'")
+
+        val download = provider.get(id) ?: return notFound("No download with id '$id'.")
+        if (download.status != "complete") {
+            return ServerResponse.json(
+                """{"id":"$id","status":"${download.status}","ready":false,""" +
+                    """"hint":"Poll DOWNLOAD_MANAGER.status until status is 'complete'"}"""
+            )
+        }
+        // Opened and closed purely to confirm it can be read. Reporting a pull url for bytes that
+        // cannot actually be opened would be exactly the fake success this platform refuses.
+        val readable = runCatching { provider.openDownload(id)?.close() != null }.getOrDefault(false)
+        if (!readable) {
+            return notFound("Download '$id' is complete but its file cannot be opened.")
+        }
+        return ServerResponse.json(
+            """{"id":"$id","status":"complete","ready":true,"fileName":"${download.fileName}",""" +
+                """"bytes":${download.bytesDownloaded},""" +
+                """"contentType":"${download.contentType ?: "application/octet-stream"}",""" +
+                """"pullUrl":"$FILE_PULL_ROUTE?capability=DOWNLOAD_MANAGER&id=$id"}"""
         )
     }
 
@@ -2870,6 +2989,16 @@ class CapabilityActions(
 
     private fun badRequest(reason: String) =
         ServerResponse(400, "application/json", """{"error":"$reason"}""")
+
+    /**
+     * A named thing is not there.
+     *
+     * Distinct from badRequest because the caller's mistake is different in kind: the request was
+     * well formed and the id simply does not exist. Folding this into a 400 would tell someone
+     * their id was malformed when it was fine and the file is gone.
+     */
+    private fun notFound(reason: String) =
+        ServerResponse(404, "application/json", """{"error":"$reason"}""")
 
     /** An unknown action returns what is actually possible, so a wrong guess is self-correcting. */
     private fun unknownAction(

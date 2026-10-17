@@ -15,6 +15,15 @@ data class ParamDoc(
 )
 
 /**
+ * Where produced bytes are streamed from.
+ *
+ * One route for every producer that offers a pull, rather than a route per capability. A client
+ * learns the single shape — `?capability=X&id=Y` — and adding a producer means teaching it one
+ * pair of values, not one new endpoint to discover.
+ */
+const val FILE_PULL_ROUTE = "/api/files/pull"
+
+/**
  * An action the API exposes, together with its documentation and its implementation.
  *
  * Documentation lives *inside* the action definition rather than beside it. That is the whole point:

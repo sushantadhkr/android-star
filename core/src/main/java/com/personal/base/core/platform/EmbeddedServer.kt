@@ -13,6 +13,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.io.OutputStream
 import java.io.PrintWriter
 import java.net.ServerSocket
 import java.net.Socket
@@ -25,7 +26,15 @@ data class ServerRequest(
     val method: String,
     val path: String,
     val body: String,
-    val headers: Map<String, String> = emptyMap()
+    val headers: Map<String, String> = emptyMap(),
+    /**
+     * The request target before the query string was split off.
+     *
+     * Routing matches on [path], so a handler that needs the query has no way to recover it — and
+     * rebuilding it from the path is guesswork. The raw form is carried alongside so a handler can
+     * read exactly what was asked for.
+     */
+    val rawPath: String = path
 ) {
     /** The bearer token presented by the caller, if any. */
     fun bearerToken(): String? =
@@ -59,6 +68,24 @@ data class ServerResponse(
 }
 
 private typealias RouteHandler = (ServerRequest) -> ServerResponse
+
+/**
+ * A route whose response is not text.
+ *
+ * Most of this API answers in JSON, which [ServerResponse] carries as a String. That is the wrong
+ * shape for a photo or a downloaded file: base64 inside a JSON string costs a third more on the
+ * wire and has to exist in memory whole, so pulling a large file back would mean building a String
+ * several times the size of the file. A handler registered here is given the socket's output stream
+ * and writes the bytes itself.
+ *
+ * It returns whether it handled the request. Returning false leaves the normal routing to run, so a
+ * raw handler can decline rather than having to guess.
+ *
+ * Raw handlers are still behind authorisation and still have to gate themselves on the capability
+ * they serve — nothing about being raw exempts a route from the rule that a switched-off
+ * capability is never invoked.
+ */
+private typealias RawRouteHandler = (ServerRequest, OutputStream) -> Boolean
 
 /**
  * A lightweight HTTP server owned by the platform.
@@ -103,18 +130,26 @@ class EmbeddedServer(
     val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
 
     private val routeHandlers = ConcurrentHashMap<String, RouteHandler>()
+    private val rawRouteHandlers = ConcurrentHashMap<String, RawRouteHandler>()
 
     /** Registers a route. Re-registering a path replaces the previous handler. */
     fun registerRoute(path: String, handler: RouteHandler) {
         routeHandlers[path] = handler
     }
 
+    /** Registers a route that writes its own bytes. See [RawRouteHandler]. */
+    fun registerRawRoute(path: String, handler: RawRouteHandler) {
+        rawRouteHandlers[path] = handler
+    }
+
     /** Removes a route. Used when an App stops serving. */
     fun unregisterRoute(path: String) {
         routeHandlers.remove(path)
+        rawRouteHandlers.remove(path)
     }
 
-    fun hasRoute(path: String): Boolean = routeHandlers.containsKey(path)
+    fun hasRoute(path: String): Boolean =
+        routeHandlers.containsKey(path) || rawRouteHandlers.containsKey(path)
 
     /**
      * The handler registered for a path, or null.
@@ -123,6 +158,10 @@ class EmbeddedServer(
      * and status behaviour testable.
      */
     fun handlerFor(path: String): ((ServerRequest) -> ServerResponse)? = routeHandlers[path]
+
+    /** The raw handler for a path, or null. Exposed for the same reason as [handlerFor]. */
+    fun rawHandlerFor(path: String): ((ServerRequest, OutputStream) -> Boolean)? =
+        rawRouteHandlers[path]
 
     /** Every registered path, sorted — used to publish the current API surface. */
     fun routes(): List<String> = routeHandlers.keys.sorted()
@@ -216,7 +255,7 @@ class EmbeddedServer(
                     CharArray(contentLength).also { reader.read(it, 0, contentLength) }.concatToString()
                 } else ""
 
-                val request = ServerRequest(method, path, body, headers)
+                val request = ServerRequest(method, path, body, headers, rawPath)
 
                 // A CORS preflight carries no credentials — that is what a preflight is — so it
                 // must be answered before authorisation, or no browser could ever call this API
@@ -237,11 +276,29 @@ class EmbeddedServer(
                     } else {
                         authorizer?.invoke(request)
                     }
-                    val response = denied
-                        ?: routeHandlers[path]?.invoke(request)
-                        ?: ServerResponse(404, "application/json", """{"error":"Not Found"}""")
 
-                    writeResponse(writer, response, preflight = false)
+                    if (denied != null) {
+                        writeResponse(writer, denied, preflight = false)
+                    } else {
+                        // A raw route is reached only after authorisation has passed, exactly as a
+                        // normal one is. It gets the socket stream rather than a String because
+                        // there is no honest way to hand back a photo as text.
+                        val raw = rawRouteHandlers[path]
+                        val handled = raw != null && runCatching { raw(request, s.outputStream) }
+                            .getOrElse {
+                                logger.e(
+                                    "EmbeddedServer",
+                                    "Raw route $path failed: ${it.message}", it.stackTraceToString()
+                                )
+                                false
+                            }
+
+                        if (!handled) {
+                            val response = routeHandlers[path]?.invoke(request)
+                                ?: ServerResponse(404, "application/json", """{"error":"Not Found"}""")
+                            writeResponse(writer, response, preflight = false)
+                        }
+                    }
                 }
             }
         } catch (e: Exception) {

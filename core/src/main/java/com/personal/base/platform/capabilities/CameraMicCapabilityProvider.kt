@@ -40,6 +40,25 @@ data class CameraDescriptor(
 )
 
 /**
+ * A still this camera has taken, addressed by an id rather than a path.
+ *
+ * The id is the point. A capture lands in app-private storage whose path means nothing to whoever
+ * asked for the photo — it is true on this device and wrong on the next one — so an API caller has
+ * no way to use it. Handing back an id the platform minted, which resolves to the bytes on request,
+ * makes the photo reachable from anywhere the API is.
+ *
+ * Deliberately no path is ever accepted back in. An id can only name a file this platform wrote,
+ * so there is no string a caller could craft to reach something else on the device.
+ */
+data class CameraCapture(
+    val id: String,
+    val fileName: String,
+    val bytes: Long,
+    val cameraId: String,
+    val takenAt: Long
+)
+
+/**
  * Camera and microphone capture.
  *
  * This genuinely captures: stills are taken through a Camera2 capture session into a JPEG
@@ -68,6 +87,23 @@ class CameraMicCapabilityProvider(
     private var handler: Handler? = null
     private var recorder: MediaRecorder? = null
     private var activeRecordingFile: File? = null
+
+    private val _captures = MutableStateFlow<List<CameraCapture>>(emptyList())
+
+    /** Every still taken this session, newest first. */
+    val captures: StateFlow<List<CameraCapture>> = _captures.asStateFlow()
+
+    /**
+     * How many captures are remembered.
+     *
+     * Each one is a JPEG sitting in app-private storage, so this is a disk bound and not a
+     * convenience. A session that takes thousands of photos would otherwise fill the device with
+     * files nothing can reach any more, once the oldest have been dropped.
+     */
+    private val captureHistoryLimit = 50
+
+    /** Backs the id suffix. Monotonic so two captures in the same millisecond cannot collide. */
+    private val captureCounter = java.util.concurrent.atomic.AtomicInteger(0)
 
     override val status: CapabilityStatus
         get() {
@@ -234,7 +270,66 @@ class CameraMicCapabilityProvider(
         runCatching { device?.close() }
         runCatching { imageReader.close() }
 
-        return output.get()
+        val file = output.get() ?: return null
+        remember(file, target)
+        return file
+    }
+
+    /**
+     * Files this camera has taken, newest first.
+     *
+     * Returned newest first to match [MediaDownloadCapabilityProvider.recent], so a caller reading
+     * either list takes the same "the one I just made is first" path.
+     */
+    fun recentCaptures(limit: Int): List<CameraCapture> =
+        _captures.value.take(limit.coerceAtLeast(0))
+
+    /** The file behind a capture id, or null if the id is unknown or its file has gone. */
+    fun captureFile(id: String): File? {
+        val capture = _captures.value.firstOrNull { it.id == id } ?: return null
+        val file = File(captureDir(), capture.fileName)
+        return if (file.isFile) file else null
+    }
+
+    /** The bytes behind a capture id. Null when the id is unknown or the file cannot be read. */
+    fun readCapture(id: String): ByteArray? = runCatching { captureFile(id)?.readBytes() }.getOrNull()
+
+    /**
+     * What kind of thing a capture is, so a client can name the file it saves.
+     *
+     * Derived from the bytes rather than trusted from the caller's file name: the shutter only ever
+     * writes JPEG, so this reports JPEG, and a request cannot talk the platform into labelling a
+     * photo as something else.
+     */
+    fun captureContentType(id: String): String? =
+        if (captureFile(id) != null) "image/jpeg" else null
+
+    /**
+     * Gives a freshly written file an id and keeps it findable.
+     *
+     * The id is a counter the caller never sees or supplies, so it cannot be chosen to collide with
+     * another capture or to name a file that is not one of ours.
+     */
+    private fun remember(file: File, cameraId: String) {
+        val capture = CameraCapture(
+            id = "cap_" + System.currentTimeMillis().toString(36) + "_" +
+                captureCounter.incrementAndGet(),
+            fileName = file.name,
+            bytes = file.length(),
+            cameraId = cameraId,
+            takenAt = System.currentTimeMillis()
+        )
+
+        // The file is on disk before it is listed, so anything reading the list can open it. The
+        // reverse would hand out ids for files that do not exist yet.
+        val all = listOf(capture) + _captures.value
+        _captures.value = all.take(captureHistoryLimit)
+
+        // Anything that fell off the end is deleted rather than orphaned: it is unreachable by id
+        // now, so leaving it would be a file on the device that no API can ever account for.
+        all.drop(captureHistoryLimit).forEach { stale ->
+            runCatching { File(captureDir(), stale.fileName).delete() }
+        }
     }
 
     /**

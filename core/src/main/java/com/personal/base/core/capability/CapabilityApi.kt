@@ -60,6 +60,10 @@ class CapabilityApi(
         // Drive a capability. The gate is checked here, before any action runs.
         server.registerRoute("/api/capabilities/invoke") { handleInvoke(it) }
 
+        // Bytes out. Raw because a photo or a finished download has no honest JSON form, and
+        // it gates itself for the same reason every action does.
+        server.registerRawRoute(FILE_PULL_ROUTE) { request, out -> handlePull(request, out) }
+
         // Per-capability switch, and the master switch.
         server.registerRoute("/api/capabilities/toggle") { handleToggle(it) }
 
@@ -97,6 +101,13 @@ class CapabilityApi(
                 endpoint(
                     "/api/media/download", "POST",
                     "Download a URL into the Downloads folder. Returns an id; poll DOWNLOAD_MANAGER.status"
+                )
+                endpoint(
+                    FILE_PULL_ROUTE, "GET",
+                    "Stream a file this platform produced. '?capability=CAMERA&id=cap_…' or " +
+                        "'?capability=DOWNLOAD_MANAGER&id=dl_…'. Ids only — no path is ever " +
+                        "accepted. A capability switched off is refused here exactly as it is on " +
+                        "every other route."
                 )
             })
 
@@ -259,6 +270,136 @@ class CapabilityApi(
      */
     fun resolveType(id: String): CapabilityType? =
         CapabilityType.entries.firstOrNull { it.name.equals(id, ignoreCase = true) }
+
+    /**
+     * Streams a produced file back to the caller: `GET /api/files/pull?capability=CAMERA&id=…`.
+     *
+     * Bytes go out here rather than through [invokeGated] because a photo has no useful JSON
+     * encoding: base64 costs a third more on the wire and has to exist in memory whole, so pulling
+     * a large download would mean building a String several times the size of the file. The action
+     * that reports a pull url stays ordinary JSON; this is the one place bytes move.
+     *
+     * The gate is checked here, first, exactly as it is for an action. Being a raw route buys a
+     * different response shape, not an exemption — a capability the user switched off must not be
+     * reachable here either, and `a pull for a disabled capability is refused, not streamed` holds
+     * that to it.
+     *
+     * Only an id is ever taken from the request. No path, no filename, nothing a caller could craft
+     * to point somewhere else on the device: an id can only name a file this platform wrote.
+     */
+    internal fun handlePull(request: ServerRequest, out: java.io.OutputStream): Boolean {
+        val query = parseQuery(request.rawPath)
+        val capabilityId = query["capability"] ?: run {
+            refuse(out, 400, """{"error":"Missing 'capability'"}""")
+            return true
+        }
+        val id = query["id"] ?: run {
+            refuse(out, 400, """{"error":"Missing 'id'"}""")
+            return true
+        }
+
+        val type = resolveType(capabilityId)
+        if (type == null) {
+            refuse(out, 404, """{"error":"No capability named '$capabilityId'"}""")
+            return true
+        }
+
+        // Same two checks as invokeGated, in the same order, so a file cannot be read through a
+        // route an action would have refused.
+        if (!gate.isGloballyEnabled()) {
+            refuse(out, 403, """{"error":"Capabilities API is switched off"}""")
+            return true
+        }
+        if (!gate.isEnabled(type)) {
+            refuse(out, 403, """{"error":"Capability '${type.name}' is switched off"}""")
+            return true
+        }
+
+        val (fileName, contentType, bytes) = when (type) {
+            CapabilityType.CAMERA -> pullCapture(id)
+            CapabilityType.DOWNLOAD_MANAGER -> pullDownload(id)
+            else -> {
+                refuse(
+                    out, 404,
+                    """{"error":"'${type.name}' does not produce files that can be pulled"}"""
+                )
+                return true
+            }
+        } ?: run {
+            logger.w("CapabilityApi", "Pull refused: no readable file for $capabilityId id=$id")
+            refuse(out, 404, """{"error":"No file for id '$id' in $capabilityId"}""")
+            return true
+        }
+
+        logger.i("CapabilityApi", "Pulling ${bytes.size} bytes of $fileName for $capabilityId id=$id")
+        out.write(
+            ("HTTP/1.1 200 OK\r\n" +
+                "Content-Type: $contentType\r\n" +
+                "Content-Length: ${bytes.size}\r\n" +
+                "Content-Disposition: attachment; filename=\"$fileName\"\r\n" +
+                "Access-Control-Allow-Origin: *\r\n" +
+                "Connection: close\r\n\r\n").toByteArray()
+        )
+        out.write(bytes)
+        out.flush()
+        return true
+    }
+
+    /** A camera capture's bytes, or null if there is nothing to send. */
+    private fun pullCapture(id: String): Triple<String, String, ByteArray>? {
+        val provider = registry.getProvider(CapabilityType.CAMERA)
+            as? com.personal.base.platform.capabilities.CameraMicCapabilityProvider ?: return null
+        val bytes = provider.readCapture(id) ?: return null
+        val name = provider.recentCaptures(Int.MAX_VALUE).firstOrNull { it.id == id }?.fileName
+            ?: "$id.jpg"
+        return Triple(name, provider.captureContentType(id) ?: "application/octet-stream", bytes)
+    }
+
+    /** A finished download's bytes, or null if there is nothing to send. */
+    private fun pullDownload(id: String): Triple<String, String, ByteArray>? {
+        val provider = registry.getProvider(CapabilityType.DOWNLOAD_MANAGER)
+            as? com.personal.base.platform.capabilities.MediaDownloadCapabilityProvider ?: return null
+        val download = provider.get(id) ?: return null
+
+        // Read through the content resolver rather than the recorded path: under scoped storage
+        // that path is for a person to read, not something the process can open.
+        val stream = provider.openDownload(id) ?: return null
+        val bytes = stream.use { it.readBytes() }
+        return Triple(
+            download.fileName,
+            download.contentType ?: "application/octet-stream",
+            bytes
+        )
+    }
+
+    /** Writes a JSON refusal as a complete response, since no body is ever streamed after this. */
+    private fun refuse(out: java.io.OutputStream, status: Int, body: String) {
+        val bytes = body.toByteArray()
+        val reason = when (status) {
+            403 -> "Forbidden"
+            404 -> "Not Found"
+            else -> "Bad Request"
+        }
+        out.write(
+            ("HTTP/1.1 $status $reason\r\n" +
+                "Content-Type: application/json\r\n" +
+                "Content-Length: ${bytes.size}\r\n" +
+                "Connection: close\r\n\r\n").toByteArray()
+        )
+        out.write(bytes)
+        out.flush()
+    }
+
+    /** The query string of a request path, parsed. */
+    private fun parseQuery(rawPath: String): Map<String, String> {
+        val query = rawPath.substringAfter('?', "")
+        if (query.isEmpty()) return emptyMap()
+        return query.split('&').mapNotNull { pair ->
+            val name = pair.substringBefore('=')
+            val value = pair.substringAfter('=', "")
+            if (name.isEmpty()) null else name to java.net.URLDecoder.decode(value, "UTF-8")
+        }.toMap()
+    }
 
     private fun handleList(): ServerResponse =
         ServerResponse.json(json.encodeToString(catalogueSnapshot()))
