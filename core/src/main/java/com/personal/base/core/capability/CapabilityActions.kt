@@ -1015,13 +1015,6 @@ class CapabilityActions(
             )
         ),
         CapabilitySpec(
-            CapabilityType.DISPLAY, "Brightness, refresh rate and display state", listOf(
-                ActionSpec("get", "Read display information", emptyList(),
-                    """{"capability":"DISPLAY","action":"get"}""",
-                    """{"brightnessPercent":64,"refreshRateHz":120.0}""", handler = { p -> displayGet() })
-            )
-        ),
-        CapabilitySpec(
             CapabilityType.MEDIA_LIBRARY, "Recent images on the device", listOf(
                 ActionSpec("recent", "List recently modified images", listOf(
                     ParamDoc("limit", "integer", false, "How many to return", "10")

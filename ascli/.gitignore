@@ -1,0 +1,5 @@
+# Build output. The generated command table is deliberately NOT ignored: it is committed so the
+# drift check has something to compare against, and so a plain `go build` works without a toolchain
+# step first.
+/ascli
+/dist/
