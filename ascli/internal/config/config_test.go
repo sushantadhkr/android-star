@@ -7,12 +7,16 @@ import (
 	"testing"
 )
 
-const TOKEN = "d128dd60d26efaffe439615fb315def37595d0748f412353187ee479c7f75117"
+// A stand-in for a bearer token: long and hex-shaped, because the redaction tests care about the
+// shape, not the credential that actually drives the phone. Never paste a real one here — the file
+// is committed, and `node tools/check-secrets.js` will fail the build if you do.
+const TOKEN = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" // ascli:not-a-secret
 
 func TestSaveAndLoadRoundTrips(t *testing.T) {
 	t.Setenv("ASCLI_CONFIG", filepath.Join(t.TempDir(), "config.json"))
 
-	cfg := &Config{BaseURL: "http://10.0.0.5:8899", Token: TOKEN}
+	cfg := &Config{Devices: map[string]*Device{}}
+	cfg.Put(ImplicitDevice, Device{BaseURL: "http://10.0.0.5:8899", Token: TOKEN})
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("save: %v", err)
 	}
@@ -21,9 +25,187 @@ func TestSaveAndLoadRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if loaded.BaseURL != cfg.BaseURL || loaded.Token != cfg.Token {
-		t.Errorf("round trip lost something: %+v", loaded)
+	device, ok := loaded.Devices[ImplicitDevice]
+	if !ok {
+		t.Fatalf("round trip lost the device: %+v", loaded)
 	}
+	if device.BaseURL != "http://10.0.0.5:8899" || device.Token != TOKEN {
+		t.Errorf("round trip lost something: %+v", device)
+	}
+}
+
+// Several devices, each with its own token — the whole reason this exists.
+func TestSeveralDevicesEachKeepTheirOwnToken(t *testing.T) {
+	t.Setenv("ASCLI_CONFIG", filepath.Join(t.TempDir(), "config.json"))
+
+	cfg := &Config{Devices: map[string]*Device{}}
+	cfg.Put("pixel", Device{BaseURL: "http://10.0.0.1:8899", Token: "token-one-aaaaaaaaaa"})
+	cfg.Put("android", Device{BaseURL: "http://10.0.0.2:8899", Token: "token-two-bbbbbbbbbb"})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	loaded, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(loaded.Devices) != 2 {
+		t.Fatalf("loaded %d devices, want 2", len(loaded.Devices))
+	}
+	if loaded.Devices["pixel"].Token != "token-one-aaaaaaaaaa" {
+		t.Errorf("pixel's token was crossed with another: %q", loaded.Devices["pixel"].Token)
+	}
+	if loaded.Devices["android"].Token != "token-two-bbbbbbbbbb" {
+		t.Errorf("android's token was crossed with another: %q", loaded.Devices["android"].Token)
+	}
+}
+
+// A config written before devices existed must keep working without the user doing anything.
+func TestAConfigFromBeforeDevicesStillWorks(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	t.Setenv("ASCLI_CONFIG", path)
+
+	legacy := `{"baseUrl":"http://10.0.0.5:8899","token":"` + TOKEN + `"}`
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	name, device, err := cfg.Resolve("")
+	if err != nil {
+		t.Fatalf("an old config no longer resolves: %v", err)
+	}
+	if name != ImplicitDevice {
+		t.Errorf("an old config became %q, want %q", name, ImplicitDevice)
+	}
+	if device.Token != TOKEN {
+		t.Errorf("an old config lost the token: %+v", device)
+	}
+}
+
+// With one device, a command needs no --device. That is the single-phone case.
+func TestOneDeviceIsUsedWithoutBeingNamed(t *testing.T) {
+	cfg := &Config{Devices: map[string]*Device{"pixel": {BaseURL: "http://x:8899"}}}
+
+	name, device, err := cfg.Resolve("")
+	if err != nil {
+		t.Fatalf("a single device did not resolve: %v", err)
+	}
+	if name != "pixel" || device.BaseURL != "http://x:8899" {
+		t.Errorf("resolved to %q/%q", name, device.BaseURL)
+	}
+}
+
+// With two, guessing which would mean running a command against the wrong phone.
+func TestSeveralDevicesAreNeverGuessedBetween(t *testing.T) {
+	cfg := &Config{Devices: map[string]*Device{
+		"pixel":   {BaseURL: "http://x:8899"},
+		"android": {BaseURL: "http://y:8899"},
+	}}
+
+	_, _, err := cfg.Resolve("")
+	if err == nil {
+		t.Fatal("two devices resolved without being named")
+	}
+	var unknown *UnknownDeviceError
+	if !asUnknown(err, &unknown) {
+		t.Fatalf("error was %T, want *UnknownDeviceError", err)
+	}
+	if len(unknown.Known) != 2 {
+		t.Errorf("the error did not list the devices: %v", unknown.Known)
+	}
+	if unknown.Hint() == "" {
+		t.Error("the error gave no way forward")
+	}
+}
+
+func TestTheDefaultIsUsedWhenSet(t *testing.T) {
+	cfg := &Config{
+		Devices: map[string]*Device{
+			"pixel":   {BaseURL: "http://x:8899"},
+			"android": {BaseURL: "http://y:8899"},
+		},
+		Default: "android",
+	}
+	name, device, err := cfg.Resolve("")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if name != "android" || device.BaseURL != "http://y:8899" {
+		t.Errorf("resolved to %q, want android", name)
+	}
+}
+
+func TestANamedDeviceAlwaysWins(t *testing.T) {
+	cfg := &Config{
+		Devices: map[string]*Device{
+			"pixel":   {BaseURL: "http://x:8899"},
+			"android": {BaseURL: "http://y:8899"},
+		},
+		Default: "android",
+	}
+	name, _, err := cfg.Resolve("pixel")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if name != "pixel" {
+		t.Errorf("an explicit name was overridden by the default: %q", name)
+	}
+}
+
+func TestAnUnknownDeviceIsNamedInTheRefusal(t *testing.T) {
+	cfg := &Config{Devices: map[string]*Device{"pixel": {BaseURL: "http://x:8899"}}}
+
+	_, _, err := cfg.Resolve("nokia")
+	if err == nil {
+		t.Fatal("an unknown device resolved")
+	}
+	var unknown *UnknownDeviceError
+	if !asUnknown(err, &unknown) {
+		t.Fatalf("error was %T", err)
+	}
+	if unknown.ExitCode() != 6 {
+		t.Errorf("exit code was %d, want 6", unknown.ExitCode())
+	}
+	if !strings.Contains(unknown.Error(), "nokia") {
+		t.Errorf("the refusal did not name what was asked for: %q", unknown.Error())
+	}
+}
+
+func TestRemovingADeviceForgetsItsToken(t *testing.T) {
+	cfg := &Config{Devices: map[string]*Device{
+		"pixel":   {BaseURL: "http://x:8899", Token: TOKEN},
+		"android": {BaseURL: "http://y:8899", Token: TOKEN},
+	}, Default: "pixel"}
+
+	if !cfg.Remove("pixel") {
+		t.Fatal("removing a device that exists reported failure")
+	}
+	if _, still := cfg.Devices["pixel"]; still {
+		t.Error("the device survived removal")
+	}
+	// The default pointed at the one that was removed, so it must not dangle.
+	if cfg.Default == "pixel" {
+		t.Errorf("the default still names a removed device: %q", cfg.Default)
+	}
+}
+
+func TestRemovingADeviceThatIsNotThereSaysSo(t *testing.T) {
+	cfg := &Config{Devices: map[string]*Device{"pixel": {BaseURL: "http://x:8899"}}}
+	if cfg.Remove("nokia") {
+		t.Error("removing an unknown device reported success")
+	}
+}
+
+func asUnknown(err error, target **UnknownDeviceError) bool {
+	if e, ok := err.(*UnknownDeviceError); ok {
+		*target = e
+		return true
+	}
+	return false
 }
 
 // The token is control of the device. A file another account on the same machine can read is not a
@@ -33,7 +215,7 @@ func TestTheConfigFileIsNotReadableByAnyoneElse(t *testing.T) {
 	path := filepath.Join(dir, "config.json")
 	t.Setenv("ASCLI_CONFIG", path)
 
-	if err := (&Config{BaseURL: "http://x:8899", Token: TOKEN}).Save(); err != nil {
+	if err := (&Config{Devices: map[string]*Device{"pixel": {BaseURL: "http://x:8899", Token: TOKEN}}}).Save(); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 
@@ -52,7 +234,7 @@ func TestADirectoryItCreatesIsNotReadableByAnyoneElse(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "ascli", "nested")
 	t.Setenv("ASCLI_CONFIG", filepath.Join(dir, "config.json"))
 
-	if err := (&Config{Token: TOKEN}).Save(); err != nil {
+	if err := (&Config{Devices: map[string]*Device{"pixel": {Token: TOKEN}}}).Save(); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 
@@ -73,7 +255,7 @@ func TestAnExistingDirectoryIsLeftAlone(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ASCLI_CONFIG", filepath.Join(dir, "config.json"))
 
-	if err := (&Config{Token: TOKEN}).Save(); err != nil {
+	if err := (&Config{Devices: map[string]*Device{"pixel": {Token: TOKEN}}}).Save(); err != nil {
 		t.Fatalf("save into an existing directory: %v", err)
 	}
 
@@ -99,8 +281,7 @@ func TestAnExistingDirectoryIsLeftAlone(t *testing.T) {
 // Redacted has to be recognisable without being usable — enough to tell two tokens apart, not
 // enough to drive the phone.
 func TestRedactedShowsTheEndsAndNotTheMiddle(t *testing.T) {
-	cfg := &Config{Token: TOKEN}
-	got := cfg.Redacted()
+	got := Device{Token: TOKEN}.Redacted()
 
 	if strings.Contains(got, TOKEN) {
 		t.Errorf("redacted output contains the whole token: %q", got)
@@ -115,8 +296,7 @@ func TestRedactedShowsTheEndsAndNotTheMiddle(t *testing.T) {
 
 func TestRedactingAShortTokenHidesAllOfIt(t *testing.T) {
 	// A short token has no safe "first few and last few", so nothing of it is shown.
-	cfg := &Config{Token: "abcd"}
-	if got := cfg.Redacted(); strings.Contains(got, "abcd") {
+	if got := (Device{Token: "abcd"}).Redacted(); strings.Contains(got, "abcd") {
 		t.Errorf("a four character token leaked: %q", got)
 	}
 }
@@ -149,8 +329,8 @@ func TestAMissingConfigIsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a missing config was an error: %v", err)
 	}
-	if cfg.BaseURL != "" || cfg.Token != "" {
-		t.Errorf("a missing config came back with values: %+v", cfg)
+	if len(cfg.Devices) != 0 {
+		t.Errorf("a missing config came back with devices: %+v", cfg)
 	}
 }
 
@@ -180,7 +360,8 @@ func TestSavingTwiceLeavesNoTemporaryFiles(t *testing.T) {
 	t.Setenv("ASCLI_CONFIG", filepath.Join(dir, "config.json"))
 
 	for i := 0; i < 3; i++ {
-		if err := (&Config{BaseURL: "http://x", Token: "t"}).Save(); err != nil {
+		cfg := &Config{Devices: map[string]*Device{"pixel": {BaseURL: "http://x", Token: "t"}}}
+		if err := cfg.Save(); err != nil {
 			t.Fatalf("save %d: %v", i, err)
 		}
 	}
@@ -199,13 +380,14 @@ func TestSavingTwiceLeavesNoTemporaryFiles(t *testing.T) {
 	}
 }
 
-func TestClearForgetsTheToken(t *testing.T) {
-	cfg := &Config{BaseURL: "http://x:8899", Token: TOKEN}
-	cfg.Clear()
-	if cfg.Token != "" {
-		t.Errorf("Clear left the token: %q", cfg.Token)
+// Clearing a token leaves the device in place, so reconnecting needs no name or URL again.
+func TestClearForgetsTheTokenButKeepsTheDevice(t *testing.T) {
+	device := Device{BaseURL: "http://x:8899", Token: TOKEN}
+	device.Clear()
+	if device.Token != "" {
+		t.Errorf("Clear left the token: %q", device.Token)
 	}
-	if cfg.BaseURL != "http://x:8899" {
-		t.Errorf("Clear also took the URL: %q", cfg.BaseURL)
+	if device.BaseURL != "http://x:8899" {
+		t.Errorf("Clear also took the URL: %q", device.BaseURL)
 	}
 }

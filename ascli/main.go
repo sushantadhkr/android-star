@@ -26,8 +26,9 @@ var version = "dev"
 
 const usage = `ascli — drive an Android Star platform from your terminal
 
-  ascli connect <url> --token <token>   remember a platform and prove the token works
-  ascli doctor                          can this machine drive that platform right now
+  ascli connect <name> <url> --token <t>  remember a platform under a name, after proving it works
+  ascli devices                         list what is connected, and whether each answers
+  ascli doctor                          can this machine drive them right now
   ascli capabilities [filter]            every Platform Feature
   ascli capability <FEATURE>            one feature, every action, with examples
   ascli platform status                  the master switch and every feature's state
@@ -48,6 +49,7 @@ Every action is generated from the platform's own docs, so anything it offers wo
 
 Global flags:
 
+  -d, --device <name>   which device to talk to. Optional when there is only one, or a default
   --json          machine-readable output (the default when stdout is not a terminal)
   --no-json       force the readable form, even when piping
   --verbose       show what is being sent, with the token redacted
@@ -65,6 +67,7 @@ Exit codes:
   3  the platform refused on purpose
   4  the platform could not be reached
   5  whatever was asked for does not exist
+  6  no such device, or several and none was named
 `
 
 func main() {
@@ -94,12 +97,23 @@ func run(args []string) int {
 	o := cmds.NewOutput(false, false)
 	forced := false
 	var flagErr error
+	deviceName := ""
 	var rest []string
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		// Global flags are stripped wherever they appear, so `ascli camera capture --json` works
 		// as well as `ascli --json camera capture`.
 		switch arg {
+		case "-d", "--device":
+			// Consumed here rather than left to the command: which device to talk to applies to
+			// everything, including help and doctor.
+			if i+1 < len(args) {
+				deviceName = args[i+1]
+				i++
+			} else {
+				flagErr = cmds.Usagef("name one of the connected devices", "%s needs a device name", arg)
+			}
+			continue
 		case "--json":
 			o.JSON = true
 			forced = true
@@ -119,7 +133,8 @@ func run(args []string) int {
 				case "text":
 					o.JSON = false
 				default:
-					flagErr = fmt.Errorf("--format takes json or text, got %q", args[i+1])
+					flagErr = cmds.Usagef("use --format json or --format text",
+						"--format takes json or text, got %q", args[i+1])
 				}
 				forced = true
 				i++
@@ -147,15 +162,37 @@ func run(args []string) int {
 		return client.ExitUsage
 	}
 
-	baseURL, token, skipTLS := settings(rest)
-	c := client.New(baseURL, token, skipTLS)
-
-	err := dispatch(ctx, c, o, rest)
+	// The device is resolved inside dispatch, not here: commands that work offline — reading the
+	// bundled documentation, completing a shell, listing devices — must not be blocked by having
+	// no phone connected, and resolving up front refused them all.
+	err := dispatch(ctx, settings(rest, deviceName), o, rest, deviceName)
 	if err == nil {
 		return client.ExitOK
 	}
 	if cmds.IsSilent(err) {
 		return client.ExitRefused
+	}
+
+	return report(o, err)
+}
+
+// report prints an error the way its kind deserves, and gives the code to leave with.
+func report(o *cmds.Output, err error) int {
+	if err == nil {
+		return client.ExitOK
+	}
+	if cmds.IsSilent(err) {
+		return client.ExitRefused
+	}
+
+	// A device that could not be named is its own thing: the message says which devices exist and
+	// how to pick one, which the generic handler would flatten into "no device connected".
+	var unknown *config.UnknownDeviceError
+	if errors.As(err, &unknown) {
+		// Printed here rather than through the generic handler because this message is the answer:
+		// it names the devices that exist and says how to choose one.
+		fmt.Fprintf(o.Err, "  %s\n  %s\n", unknown.Error(), cmds.Indent(unknown.Hint()))
+		return unknown.ExitCode()
 	}
 
 	code := cmds.ExitWith(o, err)
@@ -166,19 +203,53 @@ func run(args []string) int {
 	return code
 }
 
-// settings resolves the base URL and token, with flags beating the saved config and the environment
-// beating nothing at all.
-func settings(args []string) (baseURL, token string, skipTLS bool) {
+// target is what a run resolved to before anything was sent.
+type target struct {
+	name    string
+	baseURL string
+	token   string
+	skipTLS bool
+}
+
+// settings works out which device to talk to.
+//
+// Order: the environment names the device, then --device, then whatever the config resolves on
+// its own. A URL or token in the environment overrides the device's, which is how one-off use
+// works without saving anything.
+func settings(args []string, deviceName string) target {
 	cfg, err := config.Load()
 	if err != nil {
-		// A broken config must not stop `ascli doctor` or `ascli connect` from running, which are
-		// the two commands that would fix it.
-		cfg = &config.Config{}
+		// A broken config must not stop `ascli doctor` or `ascli connect` — the two commands that
+		// would fix it — from running.
+		cfg = &config.Config{Devices: map[string]*config.Device{}}
 	}
-	baseURL = cfg.BaseURL
-	token = cfg.Token
-	skipTLS = cfg.SkipTLSVerify
 
+	t := target{name: deviceName}
+
+	if name := os.Getenv("ASCLI_DEVICE"); name != "" {
+		t.name = name
+	}
+
+	// Resolve now so a bad name is reported before anything is sent, and so the device's own token
+	// and TLS setting are known.
+	if t.name == "" && len(cfg.Devices) > 0 {
+		name, device, resolveErr := cfg.Resolve("")
+		if resolveErr == nil {
+			t.name = name
+			t.baseURL = device.BaseURL
+			t.token = device.Token
+			t.skipTLS = device.SkipTLSVerify
+		}
+	} else if t.name != "" {
+		if name, device, resolveErr := cfg.Resolve(t.name); resolveErr == nil {
+			t.name = name
+			t.baseURL = device.BaseURL
+			t.token = device.Token
+			t.skipTLS = device.SkipTLSVerify
+		}
+	}
+
+	// Explicit overrides, which also cover a device that is not saved at all.
 	for i := 0; i < len(args); i++ {
 		value := ""
 		if i+1 < len(args) {
@@ -187,42 +258,87 @@ func settings(args []string) (baseURL, token string, skipTLS bool) {
 		switch args[i] {
 		case "--token", "--api-token":
 			if value != "" {
-				token = value
+				t.token = value
 			}
 		case "--url", "--base-url":
 			if value != "" {
-				baseURL = value
+				t.baseURL = value
 			}
 		case "--tls-skip-verify":
-			skipTLS = true
+			t.skipTLS = true
 		}
 	}
 
 	if env := os.Getenv("ASCLI_TOKEN"); env != "" {
-		token = env
+		t.token = env
 	}
 	if env := os.Getenv("ASCLI_URL"); env != "" {
-		baseURL = env
+		t.baseURL = env
 	}
-	return baseURL, token, skipTLS
+	return t
 }
 
-func dispatch(ctx context.Context, c *client.Client, o *cmds.Output, args []string) error {
+// clientFor builds the client, or explains why there is not one.
+//
+// A missing device is reported here rather than producing a client with an empty URL, so every
+// command gets the same clear message instead of a confusing "cannot reach http://:".
+func clientFor(t target) (*client.Client, error) {
+	if t.baseURL == "" {
+		cfg, err := config.Load()
+		if err != nil {
+			return nil, err
+		}
+		if t.name != "" {
+			if _, ok := cfg.Devices[t.name]; ok {
+				return nil, &config.UnknownDeviceError{Name: t.name, Known: cfg.Names()}
+			}
+		}
+		if len(cfg.Devices) == 0 {
+			return nil, &config.UnknownDeviceError{}
+		}
+		return nil, &config.UnknownDeviceError{Name: t.name, Known: cfg.Names()}
+	}
+	return client.New(t.name, t.baseURL, t.token, t.skipTLS), nil
+}
+
+// worksOffline names the commands that must run with nothing connected.
+//
+// Reading what the API offers, completing a shell, listing or forgetting a device, and diagnosing
+// the setup are all things someone does *before* they have a working phone. Refusing them for
+// having no phone would be refusing the very commands that fix it.
+var worksOffline = map[string]bool{
+	"connect":      true,
+	"devices":      true,
+	"doctor":       true,
+	"capabilities": true,
+	"capability":   true,
+	"completion":   true,
+	"help":         true,
+}
+
+func dispatch(ctx context.Context, t target, o *cmds.Output, args []string, deviceName string) error {
 	command := args[0]
+
+	// Stated rather than inferred from arity: these work with no phone connected, because they
+	// read the bundled documentation or the local config. Everything else has to talk to a device.
+	var c *client.Client
+	if !worksOffline[command] {
+		built, err := clientFor(t)
+		if err != nil {
+			return err
+		}
+		c = built
+	}
 
 	switch command {
 	case "connect":
 		return connectCommand(ctx, o, args[1:])
 
 	case "doctor":
-		if c.BaseURL() == "" {
-			return &client.Error{
-				Status:  400,
-				Message: "No platform connected.",
-				Hint:    "ascli connect http://<phone>:8899 --token <token>",
-			}
-		}
-		return cmds.Doctor(ctx, c, o)
+		return cmds.Doctor(ctx, o, deviceName)
+
+	case "devices":
+		return devicesCommand(ctx, o, args[1:])
 
 	case "capabilities":
 		filter := ""
@@ -288,14 +404,22 @@ func dispatch(ctx context.Context, c *client.Client, o *cmds.Output, args []stri
 
 func connectCommand(ctx context.Context, o *cmds.Output, args []string) error {
 	if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
-		fmt.Fprintf(o, "  ascli connect <url> --token <token>\n")
-		fmt.Fprintf(o, "  ascli connect <url> --token-stdin   # read the token from a pipe\n\n")
+		fmt.Fprintf(o, "  ascli connect <name> <url> --token <token>\n")
+		fmt.Fprintf(o, "  ascli connect <url> --token <token>          saved as '%s'\n", config.ImplicitDevice)
+		fmt.Fprintf(o, "  ascli connect <url> --token-stdin            # read the token from a pipe\n")
+		fmt.Fprintf(o, "  ascli connect <name> <url> --token <token> --no-save   # try it once\n\n")
 		fmt.Fprintf(o, "  The token is on the phone in Settings → API access token.\n")
+		fmt.Fprintf(o, "  Then: ascli --device <name> camera capture -o shot.jpg\n")
 		return nil
 	}
 
-	url, token := "", ""
+	// Two positionals means a name and a URL; one means just a URL. Decided by count rather than
+	// by guessing whether the first looks like a hostname, so "ascli connect pixel" cannot be
+	// read as a URL and fail in a confusing way.
+	var positionals []string
+	token := ""
 	save := true
+
 	for i := 0; i < len(args); i++ {
 		next := ""
 		if i+1 < len(args) {
@@ -310,12 +434,52 @@ func connectCommand(ctx context.Context, o *cmds.Output, args []string) error {
 		case "--no-save":
 			save = false
 		default:
-			if !strings.HasPrefix(args[i], "-") && url == "" {
-				url = args[i]
+			if !strings.HasPrefix(args[i], "-") {
+				positionals = append(positionals, args[i])
 			}
 		}
 	}
-	return cmds.Connect(ctx, o, url, token, save)
+
+	name, url := "", ""
+	switch len(positionals) {
+	case 0:
+	case 1:
+		url = positionals[0]
+	case 2:
+		name, url = positionals[0], positionals[1]
+	default:
+		return cmds.Usagef("ascli connect --help", "connect takes a name and a URL, or just a URL — got %d arguments",
+			len(positionals))
+	}
+
+	return cmds.Connect(ctx, o, name, url, token, save)
+}
+
+// devicesCommand is the list, and the two things you can do to it.
+func devicesCommand(ctx context.Context, o *cmds.Output, args []string) error {
+	if len(args) == 0 {
+		return cmds.Devices(ctx, o)
+	}
+
+	switch args[0] {
+	case "--help", "-h":
+		fmt.Fprintf(o, "  ascli devices                  list, and reach each one\n")
+		fmt.Fprintf(o, "  ascli devices remove <name>     forget a device and its token\n")
+		fmt.Fprintf(o, "  ascli devices default <name>   use it when --device is not given\n")
+		return nil
+	case "remove", "rm", "forget":
+		if len(args) < 2 {
+			return cmds.Usagef("ascli devices --help", "which device? Try: ascli devices remove pixel")
+		}
+		return cmds.RemoveDevice(o, args[1])
+	case "default":
+		if len(args) < 2 {
+			return cmds.Usagef("ascli devices --help", "which device? Try: ascli devices default pixel")
+		}
+		return cmds.SetDefaultDevice(o, args[1])
+	default:
+		return cmds.Usagef("ascli devices --help", "unknown: devices %s", args[0])
+	}
 }
 
 func platformCommand(ctx context.Context, c *client.Client, o *cmds.Output, args []string) error {
@@ -494,7 +658,7 @@ func unknownCommand(command string, c *client.Client) error {
 }
 
 func usageError(message string) error {
-	return &client.Error{Status: 400, Message: message, Hint: "ascli help explains the commands."}
+	return cmds.Usagef("ascli help explains the commands.", "%s", message)
 }
 
 func wantsHelp(args []string) bool {

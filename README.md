@@ -430,6 +430,28 @@ control for each of its parameters, that a capability without actions invents no
 capability name cannot inject HTML, and that the served asset cannot drift from the source.
 Regenerate the fixture with `./gradlew :core:testDebugUnitTest --tests '*DocsFixtureTest'`.
 
+`tools/check-secrets.js` refuses to let a credential into the repository. It looks for the API
+token's exact shape — 64 lower-case hex characters — plus private keys, bearer headers and assigned
+credentials, and fails with the file and line.
+
+It is there because a live token once was not. One was written into a test as a constant and
+committed, then pushed; a test only needs something long and the right shape, never the real thing.
+Rotate first, then rewrite history — but rotation is the part that actually protects the device,
+because a pushed commit is already published however the history is later changed.
+
+A value that is deliberately a stand-in says so on its own line:
+
+```go
+const TOKEN = "0123456789abcdef…"   // ascli:not-a-secret
+```
+
+Run it before committing:
+
+```bash
+node tools/check-secrets.js --staged   # what this commit is about to add
+node tools/check-secrets.js            # everything tracked
+```
+
 ### Downloading media to the phone
 
 One endpoint, for the thing people ask for most often:

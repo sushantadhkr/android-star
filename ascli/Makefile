@@ -34,6 +34,7 @@ generate-check:
 
 ## check — what CI runs
 check: vet generate-check test
+	@node ../tools/check-secrets.js
 	@echo "ascli is up to date with the platform"
 
 ## fmt — gofmt everything

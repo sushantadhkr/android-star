@@ -44,7 +44,7 @@ func (r *recorder) server(t *testing.T) *httptest.Server {
 
 func newClient(t *testing.T, rec *recorder) *client.Client {
 	t.Helper()
-	return client.New(rec.server(t).URL, "token", false)
+	return client.New("pixel", rec.server(t).URL, "token", false)
 }
 
 func quietOutput() *Output {

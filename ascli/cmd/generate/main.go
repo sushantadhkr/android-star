@@ -117,19 +117,20 @@ func load(from string, useLive bool) (*client.Docs, string, error) {
 		if err != nil {
 			return nil, "", err
 		}
-		if cfg.BaseURL == "" {
-			return nil, "", fmt.Errorf("--live was asked for but no platform is connected. " +
-				"Run 'ascli connect <url> --token <token>' first, or drop --live to use the fixture.")
+		name, device, err := cfg.Resolve(os.Getenv("ASCLI_DEVICE"))
+		if err != nil {
+			return nil, "", fmt.Errorf("--live was asked for but no device is connected. " +
+				"Run 'ascli connect <name> <url> --token <token>' first, or drop --live to use the fixture.")
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		c := client.New(cfg.BaseURL, cfg.Token, cfg.SkipTLSVerify)
+		c := client.New(name, device.BaseURL, device.Token, device.SkipTLSVerify)
 		docs, err := c.Docs(ctx)
 		if err != nil {
 			return nil, "", err
 		}
-		return docs, fmt.Sprintf("%s (live)", cfg.BaseURL), nil
+		return docs, fmt.Sprintf("%s (%s, live)", device.BaseURL, name), nil
 	}
 
 	docs, err := cmds.LoadFixture()

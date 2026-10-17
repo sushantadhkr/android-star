@@ -50,6 +50,33 @@ func (d Drift) Empty() bool {
 	return len(d.Missing) == 0 && len(d.Extra) == 0 && len(d.Changed) == 0
 }
 
+// Detail is the whole drift written out, for when one line is not enough.
+func (d Drift) Detail() string {
+	if d.Empty() {
+		return ""
+	}
+	var b strings.Builder
+	if len(d.Missing) > 0 {
+		fmt.Fprintf(&b, "  the platform has %d action(s) this CLI does not: %s\n",
+			len(d.Missing), strings.Join(trimList(d.Missing, 6), ", "))
+	}
+	if len(d.Extra) > 0 {
+		fmt.Fprintf(&b, "  this CLI has %d action(s) the platform does not: %s\n",
+			len(d.Extra), strings.Join(trimList(d.Extra, 6), ", "))
+	}
+	for _, changed := range d.Changed {
+		fmt.Fprintf(&b, "  %s: %s\n", changed.Command, changed.Reason)
+	}
+	return b.String()
+}
+
+func trimList(items []string, max int) []string {
+	if len(items) <= max {
+		return items
+	}
+	return append(append([]string{}, items[:max]...), fmt.Sprintf("+%d more", len(items)-max))
+}
+
 // Summary is one line for a human.
 func (d Drift) Summary() string {
 	if d.Empty() {

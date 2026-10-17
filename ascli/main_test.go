@@ -3,7 +3,11 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -60,8 +64,62 @@ func ascli(t *testing.T, args ...string) result {
 	return result{stdout: combined, stderr: combined, code: code}
 }
 
-// The tests below all run without a platform, so they use the bundled docs fixture. Anything that
-// needs a phone is skipped rather than faked.
+// withDevice points ascli at a stub platform for the duration of a test.
+//
+// The tests below that need to reach a platform get a real HTTP server rather than a mocked
+// client, so what is asserted on is what actually went over the wire.
+func withDevice(t *testing.T, handler http.Handler) string {
+	t.Helper()
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	body := fmt.Sprintf(`{"devices":{"pixel":{"baseUrl":%q,"token":"stub-token"}},"default":"pixel"}`,
+		server.URL)
+	if err := os.WriteFile(configPath, []byte(body), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("ASCLI_CONFIG", configPath)
+	t.Setenv("ASCLI_DEVICE", "")
+	t.Setenv("ASCLI_URL", "")
+	t.Setenv("ASCLI_TOKEN", "")
+	return server.URL
+}
+
+// stubDocs answers just the docs route, which is all most of these need.
+func stubDocs(t *testing.T) http.Handler {
+	t.Helper()
+	docs, err := cmds.LoadFixture()
+	if err != nil {
+		t.Fatalf("no fixture: %v", err)
+	}
+	encoded, err := json.Marshal(docs)
+	if err != nil {
+		t.Fatalf("marshal fixture: %v", err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer stub-token" {
+			w.WriteHeader(401)
+			_, _ = w.Write([]byte(`{"error":"Unauthorized"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(encoded)
+	})
+	return mux
+}
+
+// withNoDevice is for the tests that are specifically about having nothing connected.
+func withNoDevice(t *testing.T) {
+	t.Helper()
+	t.Setenv("ASCLI_CONFIG", filepath.Join(t.TempDir(), "empty.json"))
+	t.Setenv("ASCLI_DEVICE", "")
+	t.Setenv("ASCLI_URL", "")
+	t.Setenv("ASCLI_TOKEN", "")
+}
+
+// The tests that need a device get a stub; those that must work without one say so.
 
 func TestHelpListsTheShapeOfTheTool(t *testing.T) {
 	got := ascli(t, "--help")
@@ -108,6 +166,7 @@ func TestEveryActionIsReachable(t *testing.T) {
 
 // A feature name on its own should say what it is, not be mistaken for an action.
 func TestABareFeatureNameIsExplained(t *testing.T) {
+	withDevice(t, stubDocs(t))
 	got := ascli(t, "device-info")
 	if got.code == client.ExitOK {
 		t.Errorf("a bare feature name exited 0")
@@ -118,6 +177,7 @@ func TestABareFeatureNameIsExplained(t *testing.T) {
 }
 
 func TestAnUnknownCommandSaysWhatToDoNext(t *testing.T) {
+	withDevice(t, stubDocs(t))
 	got := ascli(t, "definitely-not-a-command")
 	if got.code != client.ExitNotFound {
 		t.Errorf("unknown command exited %d, want %d", got.code, client.ExitNotFound)
@@ -130,6 +190,7 @@ func TestAnUnknownCommandSaysWhatToDoNext(t *testing.T) {
 // A missing required parameter must be caught here, where the help can be shown, rather than sent
 // to the platform to be refused.
 func TestAMissingRequiredParameterIsExplained(t *testing.T) {
+	withDevice(t, stubDocs(t))
 	got := ascli(t, "camera", "pull", "--json")
 	if got.code == client.ExitOK {
 		t.Fatalf("a missing required parameter exited 0")
@@ -216,6 +277,7 @@ func TestCapabilityShowsItsActions(t *testing.T) {
 }
 
 func TestAnUnknownFeatureIsA404WithAWayForward(t *testing.T) {
+	withDevice(t, stubDocs(t))
 	got := ascli(t, "capability", "NOT_REAL")
 	if got.code != client.ExitNotFound {
 		t.Errorf("unknown feature exited %d, want %d", got.code, client.ExitNotFound)
@@ -225,22 +287,58 @@ func TestAnUnknownFeatureIsA404WithAWayForward(t *testing.T) {
 	}
 }
 
-func TestDoctorWithNoPlatformExplainsItself(t *testing.T) {
-	t.Setenv("ASCLI_CONFIG", t.TempDir()+"/none.json")
+func TestDoctorWithNothingConnectedSaysWhatToDo(t *testing.T) {
+	withNoDevice(t)
+
 	got := ascli(t, "doctor")
 	if got.code == client.ExitOK {
-		t.Errorf("doctor with nothing configured exited 0")
+		t.Errorf("doctor with nothing connected exited 0")
 	}
-	if !strings.Contains(got.stdout, "platform") {
-		t.Errorf("doctor did not mention what is missing: %q", got.stdout)
+	if !strings.Contains(got.stdout, "ascli connect") {
+		t.Errorf("doctor gave no way forward: %q", got.stdout)
 	}
 }
 
-func TestCommandsNeedAPlatformToRun(t *testing.T) {
-	// Nothing configured means nothing to talk to, and that must be an error rather than an
-	// empty success.
+// Nothing connected means nothing to talk to, and that must be an error rather than an empty
+// success — and it must be about the device, not a confusing "cannot reach http://".
+func TestCommandsNeedADeviceToRun(t *testing.T) {
+	withNoDevice(t)
+
 	got := ascli(t, "device-info", "get", "--json")
-	if got.code == client.ExitOK {
-		t.Errorf("an action with no platform exited 0")
+	if got.code != client.ExitDevice {
+		t.Errorf("an action with no device exited %d, want %d", got.code, client.ExitDevice)
 	}
+	if !strings.Contains(got.stdout, "device") {
+		t.Errorf("the refusal did not mention a device: %q", got.stdout)
+	}
+	if !strings.Contains(got.stdout, "ascli connect") {
+		t.Errorf("the refusal gave no way forward: %q", got.stdout)
+	}
+}
+
+// Reading the API's shape, listing devices and completing a shell must all work with nothing
+// connected: those are the commands someone runs *before* they have a working phone.
+func TestOfflineCommandsWorkWithNoDevice(t *testing.T) {
+	withNoDevice(t)
+
+	for _, args := range [][]string{
+		{"capabilities", "--json"},
+		{"capability", "CAMERA", "--no-json"},
+		{"devices", "--no-json"},
+		{"completion", "bash"},
+		{"--help"},
+	} {
+		got := ascli(t, args...)
+		if got.code != client.ExitOK {
+			t.Errorf("ascli %v exited %d with no device connected: %s",
+				args, got.code, firstLine(got.stdout))
+		}
+	}
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
 }

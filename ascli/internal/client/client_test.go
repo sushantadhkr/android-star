@@ -10,7 +10,10 @@ import (
 	"testing"
 )
 
-const TOKEN = "d128dd60d26efaffe439615fb315def37595d0748f412353187ee479c7f75117"
+// A stand-in for a bearer token: long and hex-shaped, because the redaction tests care about the
+// shape, not the credential that actually drives the phone. Never paste a real one here — the file
+// is committed, and `node tools/check-secrets.js` will fail the build if you do.
+const TOKEN = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" // ascli:not-a-secret
 
 // fakePlatform is a stand-in for a phone, so the client's own behaviour can be checked without one.
 type fakePlatform struct {
@@ -81,7 +84,7 @@ func (f *fakePlatform) write(w http.ResponseWriter) {
 func newTest(t *testing.T, platform *fakePlatform) (*Client, func()) {
 	t.Helper()
 	server := httptest.NewServer(platform.handler())
-	return New(server.URL, TOKEN, false), server.Close
+	return New("pixel", server.URL, TOKEN, false), server.Close
 }
 
 func TestTheTokenIsSentAsABearerHeader(t *testing.T) {
@@ -175,7 +178,7 @@ func TestAnUnexpectedBodyIsShownRatherThanHidden(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := New(server.URL, TOKEN, false).Docs(context.Background())
+	_, err := New("pixel", server.URL, TOKEN, false).Docs(context.Background())
 	apiErr, ok := err.(*Error)
 	if !ok {
 		t.Fatalf("error was %T", err)
@@ -189,7 +192,7 @@ func TestAnUnexpectedBodyIsShownRatherThanHidden(t *testing.T) {
 // that way. It must never reach the terminal intact.
 func TestATransportErrorDoesNotLeakTheToken(t *testing.T) {
 	// Port 0 is never listening, so the dial fails and the error is the interesting part.
-	c := New("http://127.0.0.1:1", TOKEN, false)
+	c := New("pixel", "http://127.0.0.1:1", TOKEN, false)
 
 	_, err := c.Docs(context.Background())
 	if err == nil {
@@ -248,7 +251,7 @@ func TestPullReportsARefusalRatherThanAnEmptyFile(t *testing.T) {
 // Raw is the escape hatch, so it must refuse a full URL rather than resolve it — otherwise it
 // becomes a way to send the token somewhere the user did not name.
 func TestRawRefusesAFullURL(t *testing.T) {
-	c := New("http://example.invalid", TOKEN, false)
+	c := New("pixel", "http://example.invalid", TOKEN, false)
 
 	_, err := c.Raw(context.Background(), "GET", "http://elsewhere.invalid/steal", nil)
 	if err == nil {
@@ -274,24 +277,38 @@ func TestRawAcceptsAPath(t *testing.T) {
 }
 
 func TestRedactedNeverShowsTheWholeToken(t *testing.T) {
-	c := New("http://x", TOKEN, false)
+	c := New("pixel", "http://x", TOKEN, false)
 	if strings.Contains(c.TokenRedacted(), TOKEN) {
 		t.Errorf("TokenRedacted leaked the token: %q", c.TokenRedacted())
 	}
 }
 
 func TestHasToken(t *testing.T) {
-	if New("http://x", "", false).HasToken() {
+	if New("pixel", "http://x", "", false).HasToken() {
 		t.Error("a client with no token claims to have one")
 	}
-	if !New("http://x", TOKEN, false).HasToken() {
+	if !New("pixel", "http://x", TOKEN, false).HasToken() {
 		t.Error("a client with a token claims not to")
+	}
+}
+
+// With several phones connected, "it failed" is much harder to act on than "it failed on pixel".
+func TestTheClientRemembersWhichDeviceItIs(t *testing.T) {
+	if got := New("pixel", "http://x", TOKEN, false).Name(); got != "pixel" {
+		t.Errorf("Name was %q, want pixel", got)
+	}
+	if got := New("pixel", "http://x", TOKEN, false).Describe(); got != "pixel" {
+		t.Errorf("Describe was %q, want pixel", got)
+	}
+	// A client with no device still says something useful rather than nothing.
+	if got := New("", "http://x:8899", TOKEN, false).Describe(); got != "http://x:8899" {
+		t.Errorf("Describe with no name was %q, want the URL", got)
 	}
 }
 
 // Skipping TLS verification must be opt-in and visible, never inherited.
 func TestTLSVerificationIsOnUnlessAsked(t *testing.T) {
-	c := New("http://x", TOKEN, false)
+	c := New("pixel", "http://x", TOKEN, false)
 	transport, ok := c.http.Transport.(*http.Transport)
 	if !ok {
 		t.Skip("transport is the shared default")

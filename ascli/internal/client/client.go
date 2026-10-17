@@ -50,6 +50,8 @@ const (
 	ExitRefused  = 3 // the platform said no on purpose
 	ExitNetwork  = 4
 	ExitNotFound = 5
+	// ExitDevice is "no such device, or several and none was named".
+	ExitDevice = 6
 )
 
 // ExitCode is the code this failure should end the process with.
@@ -71,11 +73,15 @@ type Client struct {
 	http    *http.Client
 	// redacted is the form of the token safe to put in any message.
 	redacted string
+	// name is the device as the user named it, for messages.
+	name string
 }
 
-// New builds a client. The token may be empty, which is how `ascli connect` works before one
-// exists.
-func New(baseURL, token string, skipTLSVerify bool) *Client {
+// New builds a client for one device.
+//
+// The name is carried so output and errors can say which phone something happened on: with several
+// connected, "it failed" is much harder to act on than "it failed on pixel".
+func New(name, baseURL, token string, skipTLSVerify bool) *Client {
 	transport := http.DefaultTransport
 	if skipTLSVerify {
 		// Only ever on explicit request, and named in the flag's own help, so turning it on is a
@@ -87,13 +93,25 @@ func New(baseURL, token string, skipTLSVerify bool) *Client {
 	return &Client{
 		baseURL:  strings.TrimRight(baseURL, "/"),
 		token:    token,
-		redacted: (&config.Config{Token: token}).Redacted(),
+		name:     name,
+		redacted: config.Device{Token: token}.Redacted(),
 		http:     &http.Client{Transport: transport, Timeout: 60 * time.Second},
 	}
 }
 
 // BaseURL is the platform this client points at.
 func (c *Client) BaseURL() string { return c.baseURL }
+
+// Name is the device as the user named it.
+func (c *Client) Name() string { return c.name }
+
+// Describe names the device for a message, falling back to its URL when it has no name.
+func (c *Client) Describe() string {
+	if c.name != "" {
+		return c.name
+	}
+	return c.baseURL
+}
 
 // TokenRedacted is the token in a form that is safe to print.
 func (c *Client) TokenRedacted() string { return c.redacted }

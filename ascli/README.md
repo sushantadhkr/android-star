@@ -51,23 +51,52 @@ ascli completion bash > /etc/bash_completion.d/ascli      # or zsh, fish, powers
 
 ## Connecting
 
-```sh
-ascli connect http://192.168.1.42:8899 --token <token>
-```
-
-The token is on the phone in **Settings → API access token**. To keep it out of your shell history:
+Name each phone once, then use the name:
 
 ```sh
-printf %s "$TOKEN" | ascli connect http://192.168.1.42:8899
+ascli connect pixel  http://192.168.1.42:8899  --token <token>
+ascli connect work  http://10.0.0.7:8899       --token <token>
+
+ascli --device pixel camera capture -o shot.jpg
 ```
 
-It is saved to `~/.config/ascli/config.json` (or `$XDG_CONFIG_HOME`, or `%APPDATA%` on Windows)
-with mode `600`, in a directory with mode `700`. `ASCLI_URL` and `ASCLI_TOKEN` override the file.
+The token is on each phone in **Settings → API access token**. To keep it out of your shell history:
+
+```sh
+printf %s "$TOKEN" | ascli connect pixel http://192.168.1.42:8899
+```
+
+Saved to `~/.config/ascli/config.json` (or `$XDG_CONFIG_HOME`, or `%APPDATA%` on Windows) with
+mode `600`, in a directory with mode `700`. One file holds every token, which is the reason that
+mode is not negotiable.
+
+`ASCLI_URL` and `ASCLI_TOKEN` override the file; `ASCLI_DEVICE` names the device.
+
+### One phone or two
+
+```sh
+ascli connect http://192.168.1.42:8899 --token <token>    # no name: saved as "default"
+ascli devices                                            # list, and reach each one
+ascli devices default pixel                              # used when --device is absent
+ascli devices remove work                                # forget it and its token
+```
+
+With one phone, commands need no `--device` at all. With two, **ascli refuses to guess** — running a
+command against the wrong phone is worse than being asked to say which:
+
+```
+$ ascli camera capture
+  Several devices are connected (pixel, work) and none was named.
+    Name one with --device <name>. Connected: pixel, work
+  Or make one the default:  ascli devices default <name>
+```
+
+`ascli doctor` checks every connected phone and says which one is the problem.
 
 ## Everyday use
 
 ```sh
-ascli capabilities                    # every Platform Feature
+ascli --device pixel capabilities     # every Platform Feature
 ascli capability CAMERA               # one feature, every action, with examples
 ascli platform status                 # the master switch and every feature's state
 ascli platform disable CAMERA         # afterwards every action on it returns 403
@@ -109,6 +138,7 @@ Human-readable tables and key/value output by default. **JSON when stdout is not
 | 3 | the platform refused on purpose |
 | 4 | the platform could not be reached |
 | 5 | whatever was asked for does not exist |
+| 6 | no such device, or several and none was named |
 
 A refusal is never reported as success. A `403` means a feature is switched off, and says which one
 and how to turn it back on.

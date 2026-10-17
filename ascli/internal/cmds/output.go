@@ -2,6 +2,7 @@ package cmds
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -198,6 +199,38 @@ func Mark(on bool) string {
 	return "off"
 }
 
+// ExitCoder is an error that knows which code the process should leave with.
+//
+// Without this every unrecognised error fell through to "could not be reached", so a typo in a
+// command line reported exit 4 and looked like a network problem — which is the kind of wrong
+// answer that sends someone off debugging the wrong thing entirely.
+type ExitCoder interface {
+	error
+	ExitCode() int
+}
+
+// UsageError is a mistake in how the command was written, as opposed to a problem reaching the
+// platform or being refused by it.
+type UsageError struct {
+	Message string
+	Hint    string
+}
+
+func (e *UsageError) Error() string {
+	if e.Hint == "" {
+		return e.Message
+	}
+	return e.Message + "\n  " + e.Hint
+}
+
+// Usagef builds a usage error.
+func Usagef(hint, format string, args ...any) *UsageError {
+	return &UsageError{Message: fmt.Sprintf(format, args...), Hint: hint}
+}
+
+// ExitCode for a usage error is the usage code, not the network one.
+func (e *UsageError) ExitCode() int { return client.ExitUsage }
+
 // coerce turns a command-line string into the JSON type the platform documented for it.
 //
 // The platform states each parameter's type, so the value is converted to that rather than sent as
@@ -240,17 +273,48 @@ func ExitWith(o *Output, err error) int {
 		return client.ExitOK
 	}
 
+	// Anything that knows its own code is believed: a refusal from the platform, a naming mistake
+	// and a bad command line are three different things and must not collapse into one code.
+	var coder ExitCoder
+	if errors.As(err, &coder) {
+		printError(o, err)
+		return coder.ExitCode()
+	}
+
+	printError(o, err)
+	return client.ExitNetwork
+}
+
+func printError(o *Output, err error) {
 	var apiErr *client.Error
 	if asAPIError(err, &apiErr) {
-		fmt.Fprintf(o.Err, "  %s\n", apiErr.Error())
+		fmt.Fprintf(o.Err, "%s\n", Indent(apiErr.Error()))
 		if len(apiErr.Available) > 0 {
 			fmt.Fprintf(o.Err, "  available: %s\n", strings.Join(apiErr.Available, ", "))
 		}
-		return apiErr.ExitCode()
+		return
 	}
+	if hint, ok := err.(interface{ Hint() string }); ok && hint.Hint() != "" {
+		fmt.Fprintf(o.Err, "%s\n  %s\n", Indent(err.Error()), Indent(hint.Hint()))
+		return
+	}
+	fmt.Fprintf(o.Err, "%s\n", Indent(err.Error()))
+}
 
-	fmt.Fprintf(o.Err, "  %s\n", err.Error())
-	return client.ExitNetwork
+// Indent puts every line of a message under the same two-space gutter.
+//
+// Hints here are more than one line — a refusal that lists the devices and then says how to pick
+// one — and a second line starting at column zero reads as a separate thought rather than a
+// continuation.
+func Indent(s string) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	for i, line := range lines {
+		if line == "" {
+			continue
+		}
+		lines[i] = "  " + line
+	}
+	return strings.Join(lines, "\n")
 }
 
 func asAPIError(err error, target **client.Error) bool {
