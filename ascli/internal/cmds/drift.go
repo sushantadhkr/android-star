@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/sushantadhkr/android-star/ascli/internal/client"
+	"github.com/sushantadhkr/android-star/ascli/internal/cmds/docsfixture"
 )
 
 // mustJSON encodes something we constructed ourselves.
@@ -226,24 +227,45 @@ func FindFixture() (string, error) {
 		"tools/fixtures/docs-sample.json, walking up from the working directory)")
 }
 
-// LoadFixture reads the committed docs payload, so the CLI builds and tests with no phone attached.
+// LoadFixture reads the docs payload: the copy in the working tree when there is one, and the copy
+// compiled into the binary when there is not.
+//
+// The disk copy comes first so that editing it during development takes effect immediately. The
+// embedded copy is what makes an installed ascli describe the API at all — a binary that can only
+// read documentation from a checkout is a binary that fails the first thing a new user does.
 func LoadFixture() (*client.Docs, error) {
-	path, err := FindFixture()
+	if path, err := FindFixture(); err == nil {
+		raw, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return nil, fmt.Errorf("cannot read %s: %w", path, readErr)
+		}
+		return parseDocs(raw, path)
+	}
+
+	docs, err := parseDocs(docsfixture.Docs, "the documentation built into this binary")
 	if err != nil {
 		return nil, err
 	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("cannot read %s: %w", path, err)
-	}
+	return docs, nil
+}
+
+func parseDocs(raw []byte, source string) (*client.Docs, error) {
 	docs := &client.Docs{}
 	if err := json.Unmarshal(raw, docs); err != nil {
-		return nil, fmt.Errorf("%s is not valid docs JSON: %w", path, err)
+		return nil, fmt.Errorf("%s is not valid docs JSON: %w", source, err)
 	}
 	if len(docs.Capabilities) == 0 {
-		return nil, fmt.Errorf("%s lists no capabilities, so there is nothing to generate from", path)
+		return nil, fmt.Errorf("%s lists no capabilities", source)
 	}
 	return docs, nil
+}
+
+// FixtureSource names where the documentation being used came from, for messages that care.
+func FixtureSource() string {
+	if path, err := FindFixture(); err == nil {
+		return path
+	}
+	return "built in"
 }
 
 // CheckGeneration fails when the committed commands no longer match the fixture.

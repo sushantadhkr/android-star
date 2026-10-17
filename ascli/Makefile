@@ -8,7 +8,7 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 
 PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64
 
-.PHONY: all build install test check generate generate-check fmt vet clean dist help
+.PHONY: all build install test check generate generate-check embed-sync embed-sync-force fmt vet clean dist help
 
 all: check build
 
@@ -32,8 +32,16 @@ generate:
 generate-check:
 	go run ./cmd/generate --check
 
+## embed-sync — the copy compiled into the binary must match the fixture on disk
+embed-sync:
+	@node ../tools/check-fixture-embedded.js
+
+## embed-sync-force — copy the fixture into the binary
+embed-sync-force:
+	@node ../tools/check-fixture-embedded.js --fix
+
 ## check — what CI runs
-check: vet generate-check test
+check: vet embed-sync generate-check test
 	@node ../tools/check-secrets.js
 	@echo "ascli is up to date with the platform"
 

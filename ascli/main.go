@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"syscall"
@@ -21,8 +22,27 @@ import (
 	"github.com/sushantadhkr/android-star/ascli/internal/config"
 )
 
-// version is stamped at build time. Kept as a variable so `go build` works without any flags.
-var version = "dev"
+// version is stamped at build time by the Makefile. Kept as a variable so a plain `go build`
+// works with no flags.
+var version = ""
+
+// resolvedVersion reports the version this binary was built at.
+//
+// `go install pkg@version` does not run our Makefile, so the linker never stamps it and every
+// installed copy would claim to be "dev" — indistinguishable from a local build, and exactly when
+// someone needs to know which build they have. The Go toolchain records the module version in the
+// binary's build info, so it is read from there when the flag is absent.
+func resolvedVersion() string {
+	if version != "" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" {
+		if v := strings.TrimPrefix(info.Main.Version, "v"); v != "" && v != "(devel)" {
+			return v
+		}
+	}
+	return "dev"
+}
 
 const usage = `ascli — drive an Android Star platform from your terminal
 
@@ -85,7 +105,7 @@ func run(args []string) int {
 		fmt.Fprint(os.Stdout, usage)
 		return client.ExitOK
 	case "--version", "version":
-		fmt.Fprintf(os.Stdout, "ascli %s\n", version)
+		fmt.Fprintf(os.Stdout, "ascli %s\n", resolvedVersion())
 		return client.ExitOK
 	}
 
