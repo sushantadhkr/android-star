@@ -33,7 +33,23 @@ has never heard of, `ascli invoke` still reaches it rather than telling you to g
 go install github.com/sushantadhkr/android-star/ascli@latest
 ```
 
-Or build from a checkout:
+Needs Go 1.22+ and nothing else — no clone, no Gradle, no Android SDK. Run it from outside the
+repository; inside another module Go refuses to install with a version suffix.
+
+Pin a version when you want to be sure what you got:
+
+```sh
+go install github.com/sushantadhkr/android-star/ascli@v0.1.1
+ascli --version          # reports which build this is
+```
+
+Where it lands is `$(go env GOPATH)/bin`, which is usually already on your PATH. If it is not:
+
+```sh
+export PATH="$(go env GOPATH)/bin:$PATH"
+```
+
+Or from a checkout:
 
 ```sh
 make -C ascli build      # ./ascli/ascli
@@ -41,7 +57,10 @@ make -C ascli install    # onto your PATH
 make -C ascli dist       # cross-compiled binaries for macOS, Linux and Windows
 ```
 
-One static binary. No runtime, no dependencies.
+One static binary either way, with no runtime and no dependencies. The platform's documentation is
+compiled into it, so `ascli capabilities` works before you have connected anything.
+
+Releases are tagged `ascli/vX.Y.Z`; `go install …@latest` takes the highest one.
 
 Shell completion:
 

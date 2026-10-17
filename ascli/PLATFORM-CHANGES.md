@@ -27,6 +27,30 @@ make -C ascli generate-go-live   # or: go run ./cmd/generate --live
       + --flash
 ```
 
+## Publishing a release
+
+ascli is a Go module in a subdirectory, so it is installed and versioned like one:
+
+```sh
+make -C ascli check                       # everything, including the drift check
+git tag -a ascli/v0.2.0 -m "ascli v0.2.0"
+git push origin main ascli/v0.2.0
+```
+
+The tag must be `ascli/v…`, not `v…` — a submodule's tag carries the subdirectory name, and
+`go install …@latest` will not see a bare `v` tag. Without a tag there is nothing for
+`go install` to resolve and the one-liner in the README simply does not work.
+
+## Two copies of the documentation
+
+`testdata/docs.json` is what `make generate` builds from and what a developer edits.
+`internal/cmds/docsfixture/docs.json` is compiled into the binary, so an installed ascli can
+describe the API without a checkout. They must match, and `make check` fails if they do not:
+
+```sh
+node tools/check-fixture-embedded.js --fix
+```
+
 ## Nothing here changes when you add a device
 
 Devices are ascli's own bookkeeping — a name, a URL and a token per phone in one local file. They
